@@ -7,9 +7,9 @@
 #include <stdint.h>
 #include <math.h>
 
-static float softmax(float *input, int input_len);
+static inline void softmax(float *input, int input_len);
 
-static float sigmoid(float x);
+static inline float sigmoid(float x);
 
 #define UTIL_H
 #endif 

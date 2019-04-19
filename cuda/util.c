@@ -1,6 +1,6 @@
 #include "util.h"
 
-static float softmax(float *input, int input_len) {
+static inline void softmax(float *input, int input_len) {
     int i;
     float m;
     /* Find maximum value from input array */
@@ -21,7 +21,7 @@ static float softmax(float *input, int input_len) {
     }
 }
 
-static float sigmoid(float x) {
+static inline float sigmoid(float x) {
     float exp_value;
     float return_value;
 
