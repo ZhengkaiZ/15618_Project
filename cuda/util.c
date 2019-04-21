@@ -39,16 +39,12 @@ static inline float sigmoid_backward(float x) {
 
 }
 
-static inline float tanh_forward() {
-
+static inline double tanh_forward(double x) {
+    return tanh(x);
 }
 
 static inline float tanh_backward() {
 
-}
-
-static inline int index(int i, int j, int width) {
-    return i * width + j;
 }
 
 static float* matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h) {

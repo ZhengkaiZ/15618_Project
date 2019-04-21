@@ -1,10 +1,7 @@
 #ifndef CUDA_STRUCT_H
 
 #include "util.h"
-
-#define H 128
-#define D 10
-#define Z 138
+#include "param.h"
 
 typedef struct {
     // Weights
