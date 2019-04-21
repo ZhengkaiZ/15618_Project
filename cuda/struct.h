@@ -1,7 +1,5 @@
-#ifndef CUDA_STRUCT_H
-
-#include "util.h"
 #include "param.h"
+#include <stdlib.h>
 
 typedef struct {
     // Weights
@@ -20,17 +18,22 @@ typedef struct {
 }Model;
 
 typedef struct {
-    // Hidden State
-    float *h_f;
-    float *h_i;
-    float *h_c;
-    float *h_o;
-
-    // Current State
-    float *h;
-    float *c;
+    float *c;   // len = H, Current value of CEC
+    float *h;   // len = H, Current hidden state value
 }State;
 
-static void initiateModel();
+typedef struct {
+    // Hidden State
+    float *h_f; // len = H, Forget Gate
+    float *h_i; // len = H, Input Gate
+    float *h_c; // len = H, Detecting input pattern
+    float *h_o; // len = H, Output Gate
+
+    float *X;     // Combined input of that layer
+}HiddenState;
+
+static Model getNewModel();
 
 static State getNewtate();
+
+static HiddenState getNewHiddenState();

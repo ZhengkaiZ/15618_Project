@@ -1,6 +1,6 @@
 #include "util.h"
 
-static inline void softmax_forward(float *input, int input_len) {
+static inline void softmax(float *input, int input_len) {
     int i;
     float m;
     /* Find maximum value from input array */
@@ -21,10 +21,6 @@ static inline void softmax_forward(float *input, int input_len) {
     }
 }
 
-static inline void softmax_backword() {
-
-}
-
 static inline float sigmoid_forward(float x) {
     float exp_value;
     float return_value;
@@ -36,16 +32,45 @@ static inline float sigmoid_forward(float x) {
 }
 
 static inline float sigmoid_backward(float x) {
-
+    return x * (1 - x);
 }
 
-static inline double tanh_forward(double x) {
-    return tanh(x);
+static inline float tanh_forward(float x) {
+    return tanhf(x);
 }
 
-static inline float tanh_backward() {
-
+static inline float tanh_backward(float x) {
+    return 1 - x * x;
 }
+
+static inline float dsigmoid(float input) {
+    return input * (1 - input);
+}
+
+static inline float dtanh(float input) {
+    return 1 - input * input;
+}
+
+static inline float* dsigmoid_vector(float *input, int len) {
+    int i;
+    float *output = (float *) malloc(len * sizeof(float));
+    for (i = 0; i < len; i++) {
+        output[i] = dsigmoid(input[i]);
+    }
+
+    return output;
+}
+
+static inline float* dtanh_vector(float *input, int len) {
+    int i = 0;
+    float *output = (float *) malloc(len * sizeof(float));
+    for (i = 0;i < len; i++) {
+        output[i] = dtanh(input[i]);
+    }
+
+    return output;
+}
+
 
 static float* matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h) {
     float* result = (float*)malloc(sizeof(float) * X_w * Y_h);
@@ -65,3 +90,46 @@ static float* matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h
 
     return result;
 }
+
+
+static inline int indexTrans(int i, int j, int height, int width, bool isTrans) {
+    if (isTrans) {
+        return j * height + i;
+    } else {
+        return i * width + j;
+    }
+}
+
+static float* matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float *Y, int Y_h, int Y_w, bool Y_isTrans) {
+    int Xh, Xw, Yh, Yw;
+    if (X_isTrans) {
+        Xh = X_w;
+        Xw = X_h;
+    } else {
+        Xh = X_h;
+        Xw = X_w;
+    }
+
+    if (Y_isTrans) {
+        Yh = Y_w;
+        Yw = Y_h;
+    } else {
+        Yh = Y_h;
+        Yw = Y_w;
+    }
+
+    float* result = (float*)malloc(sizeof(float) * Xh * Yw);
+    for (int i = 0; i < Xh; i++) {
+        for (int j = 0; j < Yw; j++) {
+            int index_c = indexTrans(i, j, Xh, Yw, false);
+            result[index_c] = 0;
+            for (int k = 0; k < Xh; k++) {
+                int index_a = indexTrans(i, k, Xh, Xw, X_isTrans);
+                int index_b = indexTrans(k, j, Yh, Yw, Y_isTrans);
+                result[index_c] += X[index_a] * Y[index_b];
+            }
+        }
+    }
+    return result;
+}
+
