@@ -1,25 +1,5 @@
 #include "util.h"
 
-#define H 128
-#define D 10
-#define Z 138
-
-typedef struct {
-    float *W_f;
-    float *W_i;
-    float *W_c;
-    float *W_o;
-    float *W_y;
-
-    float *b_f;
-    float *b_i;
-    float *b_c;
-    float *b_o;
-    float *b_y;
-}Model;
-
-Model model;
-
 static void initiateModel() {
     model.W_f = (float*)malloc(sizeof(float) * Z * H);
     model.W_i = (float*)malloc(sizeof(float) * Z * H);
@@ -42,7 +22,6 @@ static float* matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h
     float* result = (float*)malloc(sizeof(float) * X_w * Y_h);
     for (int i = 0; i < X_w; i++) {
         for (int j = 0; j < Y_h; j++) {
-
             int index_c = index(i, j, X_w);
             result[index_c] = 0;
             for (int k = 0; k < X_h; k++) {
@@ -50,7 +29,6 @@ static float* matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h
                 int index_b = index(k, j, Y_w);
                 result[index_c] += X[index_a] * Y[index_b];
             }
-
         }
     }
 
@@ -69,6 +47,8 @@ static float* forward(int* input, float* h, float* c) {
     float *b_c = model.b_c;
     float *b_o = model.b_o;
     float *b_y = model.b_y;
+    
+    cache.c_old = c;
 
     // One-hot encode
     float *X_one_hot = (float*)malloc(sizeof(float) * D);
@@ -118,7 +98,15 @@ static float* forward(int* input, float* h, float* c) {
     for (int i = 0; i < D; i++) {
         y[i] = temp[i] + b_y[i];
     }
-
+    
+    cache.hf = h_f;
+    cache.hi = h_i;
+    cache.hc = h_c;
+    cache.ho = h_o;
+    cache.c = deep_copy(c, H);
+    cache.h = deep_copy(h, H);
+    cache.X = combined_input;
+    
     softmax(y, D);
 
     return y;
