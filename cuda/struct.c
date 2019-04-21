@@ -16,7 +16,7 @@ static Model getNewModel() {
     return model;
 }
 
-static State getNewtate() {
+static State getNewState() {
     State state;
     state.h = (float *) malloc(sizeof(float) * H);
     state.c = (float *) malloc(sizeof(float) * H);
@@ -32,5 +32,29 @@ static HiddenState getNewHiddenState() {
 
     hiddenState.X = (float *) malloc(sizeof(float) * Z);
     return hiddenState;
+}
+
+static void updateModel(Model *model, Model *grad) {
+    for(int i = 0; i < (Z*H); i++) {
+        model->W_f[i] += grad->W_f[i];
+        model->W_i[i] += grad->W_i[i];
+        model->W_c[i] += grad->W_c[i];
+        model->W_o[i] += grad->W_o[i];
+    }
+
+    for(int i = 0; i < H*D; i++) {
+        model->W_y[i] += grad->W_y[i];
+    }
+
+    for(int i = 0; i < H; i++) {
+        model->b_f[i] += grad->b_f[i];
+        model->b_i[i] += grad->b_i[i];
+        model->b_c[i] += grad->b_c[i];
+        model->b_o[i] += grad->b_o[i];
+    }
+
+    for(int i = 0; i < D; i++) {
+        model->b_y[i] += grad->b_y[i];
+    }
 }
 

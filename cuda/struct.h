@@ -15,12 +15,12 @@ typedef struct {
     float *b_c; // 1 x H
     float *b_o; // 1 x H
     float *b_y; // 1 x D
-}Model;
+} Model;
 
 typedef struct {
     float *c;   // len = H, Current value of CEC
     float *h;   // len = H, Current hidden state value
-}State;
+} State;
 
 typedef struct {
     // Hidden State
@@ -30,10 +30,12 @@ typedef struct {
     float *h_o; // len = H, Output Gate
 
     float *X;     // Combined input of that layer
-}HiddenState;
+} HiddenState;
 
 static Model getNewModel();
 
-static State getNewtate();
+static State getNewState();
 
 static HiddenState getNewHiddenState();
+
+static void updateModel(Model *model, Model *grad);

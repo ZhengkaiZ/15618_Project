@@ -13,7 +13,7 @@ static inline void softmax(float *input, int input_len) {
 
     float sum = 0;
     for (i = 0; i < input_len; i++) {
-        sum += expf(input[i]-m);
+        sum += expf(input[i] - m);
     }
 
     for (i = 0; i < input_len; i++) {
@@ -51,7 +51,7 @@ static inline float dtanh(float input) {
     return 1 - input * input;
 }
 
-static inline float* dsigmoid_vector(float *input, int len) {
+static inline float *dsigmoid_vector(float *input, int len) {
     int i;
     float *output = (float *) malloc(len * sizeof(float));
     for (i = 0; i < len; i++) {
@@ -61,10 +61,10 @@ static inline float* dsigmoid_vector(float *input, int len) {
     return output;
 }
 
-static inline float* dtanh_vector(float *input, int len) {
+static inline float *dtanh_vector(float *input, int len) {
     int i = 0;
     float *output = (float *) malloc(len * sizeof(float));
-    for (i = 0;i < len; i++) {
+    for (i = 0; i < len; i++) {
         output[i] = dtanh(input[i]);
     }
 
@@ -72,8 +72,8 @@ static inline float* dtanh_vector(float *input, int len) {
 }
 
 
-static float* matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h) {
-    float* result = (float*)malloc(sizeof(float) * X_w * Y_h);
+static float *matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h) {
+    float *result = (float *) malloc(sizeof(float) * X_w * Y_h);
     for (int i = 0; i < X_w; i++) {
         for (int j = 0; j < Y_h; j++) {
 
@@ -100,7 +100,7 @@ static inline int indexTrans(int i, int j, int height, int width, bool isTrans) 
     }
 }
 
-static float* matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float *Y, int Y_h, int Y_w, bool Y_isTrans) {
+static float *matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float *Y, int Y_h, int Y_w, bool Y_isTrans) {
     int Xh, Xw, Yh, Yw;
     if (X_isTrans) {
         Xh = X_w;
@@ -118,7 +118,7 @@ static float* matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float
         Yw = Y_w;
     }
 
-    float* result = (float*)malloc(sizeof(float) * Xh * Yw);
+    float *result = (float *) malloc(sizeof(float) * Xh * Yw);
     for (int i = 0; i < Xh; i++) {
         for (int j = 0; j < Yw; j++) {
             int index_c = indexTrans(i, j, Xh, Yw, false);
