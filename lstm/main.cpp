@@ -7,12 +7,6 @@ void saxpyCuda(int N, float alpha, float* x, float* y, float* result);
 void printCudaInfo();
 
 
-// return GB/s
-float toBW(int bytes, float sec) {
-  return static_cast<float>(bytes) / (1024. * 1024. * 1024.) / sec;
-}
-
-
 void usage(const char* progname) {
     printf("Usage: %s [options]\n", progname);
     printf("Program Options:\n");

@@ -31,18 +31,6 @@ static inline float sigmoid_forward(float x) {
     return return_value;
 }
 
-static inline float sigmoid_backward(float x) {
-    return x * (1 - x);
-}
-
-static inline float tanh_forward(float x) {
-    return tanhf(x);
-}
-
-static inline float tanh_backward(float x) {
-    return 1 - x * x;
-}
-
 static inline float dsigmoid(float input) {
     return input * (1 - input);
 }

@@ -6,17 +6,84 @@
 
 #include "CycleTimer.h"
 
-extern float toBW(int bytes, float sec);
+__device__ int
+index(int i, int j, int width, int height, bool column_base) {
+    if (column_base) {
+        return i * width + j;
+    } else {
+        return j * height + i;
+    }
+}
 
 __global__ void
-saxpy_kernel(int N, float alpha, float* x, float* y, float* result) {
+matrix_multi(float* x, int x_w, int x_h, bool x_trans, float* y, int y_w, int y_h, bool y_trans, float* result) {
+    int index_i = blockIdx.x * blockDim.x + threadIdx.x;
+    int index_j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    // compute overall index from position of thread in current block,
-    // and given the block we are in
+    if (x_trans) {
+        int temp = x_h;
+        x_h = x_w;
+        x_w = temp;
+    }
+
+    if (y_trans) {
+        int temp = y_h;
+        y_h = y_w;
+        y_w = temp;
+    }
+
+    if (index_i >= x_w || index_j >= y_h)
+        return;
+
+    int i;
+    int index_z = index_i * x_w + index_j;
+    result[index_z] = 0;
+
+    for (k = 0; k < x_h; k++) {
+        int index_x = index(index_i, k, x_w, x_h, x_trans);
+        int index_y = index(k, index_j, y_w, y_h, y_trans);
+        result[index_z] += x[index_x] * y[index_y]
+    }
+}
+
+__global__ void
+sigmoid(float* input, int N, float* output) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (index < N)
-       result[index] = alpha * x[index] + y[index];
+    if (index >= N)
+        return;
+
+    output[index] = 1 / (1 + exp(-input[index]))
+}
+
+__global__ void
+dsigmoid(float* input, int N, float* output) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= N)
+        return;
+
+    output[index] = input[index] * (1 - input[index])
+}
+
+__global__ void
+tanh(float* input, int N, float* output) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= N)
+        return;
+
+    output[index] = tanhf()
+}
+
+__global__ void
+dtanh(float* input, int N, float* output) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= N)
+        return;
+
+    output[index] = 1 - input[index] * input[index];
 }
 
 void
