@@ -1,5 +1,5 @@
-//#include <stdlib.h>
-//#include "param.h"
+#include <stdlib.h>
+#include "param.h"
 
 typedef struct {
     // Weights

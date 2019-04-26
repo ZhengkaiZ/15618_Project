@@ -136,7 +136,7 @@ static float *matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float
 static void showWeights(float *X, int lenX, char *name) {
     printf("The weights of %s is: \n", name);
     for (int i = 0; i < lenX; i++) {
-        printf("%d ", X[i]);
+        printf("%f ", X[i]);
     }
     printf("\n");
 }

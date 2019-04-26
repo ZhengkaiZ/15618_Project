@@ -63,24 +63,24 @@ static void updateModel(Model *model, Model *grad, float learning_rate) {
 
 static void updateGrad(Model *grad, Model *tmp_grad) {
     for (int i = 0; i < (Z*H); i++) {
-        model->W_f[i] += tmp_grad->W_f[i];
-        model->W_i[i] += tmp_grad->W_i[i];
-        model->W_c[i] += tmp_grad->W_c[i];
-        model->W_o[i] += tmp_grad->W_o[i];
+        grad->W_f[i] += tmp_grad->W_f[i];
+        grad->W_i[i] += tmp_grad->W_i[i];
+        grad->W_c[i] += tmp_grad->W_c[i];
+        grad->W_o[i] += tmp_grad->W_o[i];
     }
     
     for (int i = 0; i < H*D; i++) {
-        model->W_y[i] += tmp_grad->W_y[i];
+        grad->W_y[i] += tmp_grad->W_y[i];
     }
     
     for (int i = 0; i < H; i++) {
-        model->b_f[i] += tmp_grad->b_f[i];
-        model->b_i[i] += tmp_grad->b_i[i];
-        model->b_c[i] += tmp_grad->b_c[i];
-        model->b_o[i] += tmp_grad->b_o[i];
+        grad->b_f[i] += tmp_grad->b_f[i];
+        grad->b_i[i] += tmp_grad->b_i[i];
+        grad->b_c[i] += tmp_grad->b_c[i];
+        grad->b_o[i] += tmp_grad->b_o[i];
     }
     
     for (int i = 0; i < D; i++) {
-        model->b_y[i] += tmp_grad->b_y[i];
+        grad->b_y[i] += tmp_grad->b_y[i];
     }
 }

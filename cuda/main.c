@@ -229,7 +229,7 @@ int main(void) {
     int num_samples = 5;
 
     int **X = (int **) malloc(num_samples * sizeof(int*));
-    int **Y = (int **) malloc(num_samples * sizeof(int));
+    int **Y = (int **) malloc(num_samples * sizeof(int*));
     for (int i = 0; i < num_samples; i++) {
         X[i] = (int*) malloc(D * sizeof(int));
         Y[i] = (int*) malloc(D * sizeof(int));
