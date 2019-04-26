@@ -34,11 +34,11 @@ typedef struct {
     float *X;     // Combined input of that layer
 } HiddenState;
 
-static Model getNewModel();
+Model getNewModel();
 
-static State getNewState();
+State getNewState();
 
-static HiddenState getNewHiddenState();
+HiddenState getNewHiddenState();
 
-static void updateModel(Model *model, Model *grad, float learning_rate);
-static void updateGrad(Model *grad, Model *tmp_grad);
+void updateModel(Model *model, Model *grad, float learning_rate);
+void updateGrad(Model *grad, Model *tmp_grad);

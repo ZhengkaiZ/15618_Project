@@ -1,11 +1,13 @@
-#include <stdlib.h>
-
 #include "util.h"
 #include "param.h"
 #include "struct.h"
-
+#include <string.h>
 
 Model model;
+static void cell_forward(int input, State *old_state, State *state, HiddenState *h, float *prob, int layer);
+static void cell_backward(Model *grad, float *prob, int y_train, State *old_state, State *state, State *new_state, HiddenState hiddenState, int layer);
+void train(int *X, int *Y, Model *grad);
+void SGD(int **X, int **Y, State *state, float learning_rate, int num_samples);
 
 static void cell_forward(int input, State *old_state, State *state, HiddenState *h, float *prob, int layer) {
     float *W_f = model.W_f;
@@ -38,6 +40,7 @@ static void cell_forward(int input, State *old_state, State *state, HiddenState 
         h->X[i] = X_one_hot[i - H];
     }
 
+
     // Forget Gate
     // hf = sigmoid(X @ Wf + bf)
     float *temp = matrixMulti(h->X, 1, Z, W_f, Z, H);
@@ -52,13 +55,12 @@ static void cell_forward(int input, State *old_state, State *state, HiddenState 
         h->h_i[i] = sigmoid_forward(temp[i] + b_i[i]);
     }
 
-    // Detecting input pattern
-    // hc = tanh(X @ Wc + bc)
+//    // Detecting input pattern
+//    // hc = tanh(X @ Wc + bc)
     temp = matrixMulti(h->X, 1, Z, W_c, Z, H);
     for (int i = 0; i < H; ++i) {
         h->h_c[i] = tanhf(temp[i] + b_c[i]);
     }
-
     // Output Gate
     // ho = sigmoid(X @ Wo + bo)
     temp = matrixMulti(h->X, 1, Z, W_o, Z, H);
@@ -78,6 +80,7 @@ static void cell_forward(int input, State *old_state, State *state, HiddenState 
     for (int i = 0; i < D; i++) {
         prob[i] = temp[i] + b_y[i];
     }
+
     // prob = softmax(y)
     softmax(prob, D);
 }
@@ -172,7 +175,7 @@ static void cell_backward(Model *grad, float *prob, int y_train, State *old_stat
     }
 }
 
-Model* train(int *X, float *Y, State *state) {
+void train(int *X, int *Y, Model *grad) {
     // Forward
     State *states = (State *) malloc(sizeof(State) * TIME * (LAYER + 1));
     HiddenState *hiddenState = (HiddenState *) malloc(sizeof(HiddenState) * TIME * (LAYER + 1));
@@ -186,39 +189,38 @@ Model* train(int *X, float *Y, State *state) {
         memcpy(states[i].h, &X[t * D], H);    // Initialize h(0) to input
         memset(states[i].c, 0, H);          // Initialize c(0) to 0
         i++;
-
         // Hidden Layer operate at time t
         for (int l = 1; l <= LAYER; l++) {
             states[i] = getNewState();
             hiddenState[i] = getNewHiddenState();
-
-            cell_forward(&X[t * D], &states[i - 1], &states[i], &hiddenState[i], probs[t], l);
+            cell_forward(X[t * D], &states[i - 1], &states[i], &hiddenState[i], probs[t], l);
             i++;
         }
     }
+//
+//    printf("Backward");
+//    // Backward
+//    // Gradient for dh_next and dc_next is zero from the last t
+//    State d_next = getNewState();
+//    memset(d_next.h, 0, H);
+//    memset(d_next.c, 0, H);
+//
+//
+//    for (int t = TIME - 1; t >= 0; t--) {
+//        for (int l = LAYER - 1; l >= 0; l--) {
+//            cell_backward(grad, probs[t], Y[t], &states[t * LAYER + l - 1], &states[t * LAYER + l], &d_next, hiddenState[t * LAYER + l], l);
+//        }
+//    }
 
-    // Backward
-    // Gradient for dh_next and dc_next is zero from the last t
-    State d_next = getNewState();
-    memset(d_next.h, 0, H);
-    memset(d_next.c, 0, H);
-
-    Model grad = getNewModel();
-
-    for (int t = TIME - 1; t >= 0; t--) {
-        for (int l = LAYER - 1; l >= 0; l--) {
-            cell_backward(&grad, probs[t], Y[t], &states[t * LAYER + l - 1], &states[t * LAYER + l], &d_next, hiddenState[t * LAYER + l], l);
-        }
-    }
-
-    return &grad;
 }
 
-void *SDG(int **X, int **Y, State *state, float learning_rate, int num_samples) {
+void SGD(int **X, int **Y, State *state, float learning_rate, int num_samples) {
     for (int i = 0; i < EPOCH; i++) {
         for (int j = 0; j < num_samples; j++) {
-            Model *tmp_grad = train(X[i], Y[i], state);
-            updateModel(&model, tmp_grad, learning_rate);
+            Model tmp_grad = getNewModel();
+            printf("Here");
+            train(X[j], Y[j], &tmp_grad);
+//            updateModel(&model, &tmp_grad, learning_rate);
         }
     }
 }
@@ -227,6 +229,8 @@ int main(void) {
     State state = getNewState();
     int learning_rate = 1;
     int num_samples = 5;
+    model = getNewModel();
+
 
     int **X = (int **) malloc(num_samples * sizeof(int*));
     int **Y = (int **) malloc(num_samples * sizeof(int*));

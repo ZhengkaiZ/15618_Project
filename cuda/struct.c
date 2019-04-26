@@ -1,6 +1,6 @@
 #include "struct.h"
 
-static Model getNewModel() {
+Model getNewModel() {
     Model model;
     model.W_f = (float *) malloc(sizeof(float) * Z * H);
     model.W_i = (float *) malloc(sizeof(float) * Z * H);
@@ -16,7 +16,7 @@ static Model getNewModel() {
     return model;
 }
 
-static State getNewState() {
+State getNewState() {
     State state;
     state.h = (float *) malloc(sizeof(float) * H);
     state.c = (float *) malloc(sizeof(float) * H);
@@ -26,7 +26,7 @@ static State getNewState() {
     return state;
 }
 
-static HiddenState getNewHiddenState() {
+HiddenState getNewHiddenState() {
     HiddenState hiddenState;
     hiddenState.h_f = (float *) malloc(sizeof(float) * H);
     hiddenState.h_i = (float *) malloc(sizeof(float) * H);
@@ -37,7 +37,7 @@ static HiddenState getNewHiddenState() {
     return hiddenState;
 }
 
-static void updateModel(Model *model, Model *grad, float learning_rate) {
+void updateModel(Model *model, Model *grad, float learning_rate) {
     for (int i = 0; i < (Z*H); i++) {
         model->W_f[i] -= learning_rate * grad->W_f[i];
         model->W_i[i] -= learning_rate * grad->W_i[i];
@@ -61,7 +61,7 @@ static void updateModel(Model *model, Model *grad, float learning_rate) {
     }
 }
 
-static void updateGrad(Model *grad, Model *tmp_grad) {
+void updateGrad(Model *grad, Model *tmp_grad) {
     for (int i = 0; i < (Z*H); i++) {
         grad->W_f[i] += tmp_grad->W_f[i];
         grad->W_i[i] += tmp_grad->W_i[i];
