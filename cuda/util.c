@@ -1,6 +1,6 @@
 #include "util.h"
 
-static inline void softmax(float *input, int input_len) {
+static void softmax(float *input, int input_len) {
     int i;
     float m;
     /* Find maximum value from input array */
@@ -21,7 +21,7 @@ static inline void softmax(float *input, int input_len) {
     }
 }
 
-static inline float sigmoid_forward(float x) {
+static float sigmoid_forward(float x) {
     float exp_value;
     float return_value;
 
@@ -31,27 +31,27 @@ static inline float sigmoid_forward(float x) {
     return return_value;
 }
 
-static inline float sigmoid_backward(float x) {
+static float sigmoid_backward(float x) {
     return x * (1 - x);
 }
 
-static inline float tanh_forward(float x) {
+static float tanh_forward(float x) {
     return tanhf(x);
 }
 
-static inline float tanh_backward(float x) {
+static float tanh_backward(float x) {
     return 1 - x * x;
 }
 
-static inline float dsigmoid(float input) {
+static float dsigmoid(float input) {
     return input * (1 - input);
 }
 
-static inline float dtanh(float input) {
+static float dtanh(float input) {
     return 1 - input * input;
 }
 
-static inline float *dsigmoid_vector(float *input, int len) {
+static float *dsigmoid_vector(float *input, int len) {
     int i;
     float *output = (float *) malloc(len * sizeof(float));
     for (i = 0; i < len; i++) {
@@ -92,7 +92,7 @@ static float *matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h
 }
 
 
-static inline int indexTrans(int i, int j, int height, int width, bool isTrans) {
+static int indexTrans(int i, int j, int height, int width, bool isTrans) {
     if (isTrans) {
         return j * height + i;
     } else {
@@ -131,5 +131,13 @@ static float *matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float
         }
     }
     return result;
+}
+
+static void showWeights(float *X, int lenX, char *name) {
+    printf("The weights of %s is: \n", name);
+    for (int i = 0; i < lenX; i++) {
+        printf("%d ", X[i]);
+    }
+    printf("\n");
 }
 

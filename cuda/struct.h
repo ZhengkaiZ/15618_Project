@@ -1,5 +1,5 @@
-#include "param.h"
-#include <stdlib.h>
+//#include <stdlib.h>
+//#include "param.h"
 
 typedef struct {
     // Weights
@@ -20,6 +20,8 @@ typedef struct {
 typedef struct {
     float *c;   // len = H, Current value of CEC
     float *h;   // len = H, Current hidden state value
+    
+    float *dX;
 } State;
 
 typedef struct {
@@ -38,4 +40,5 @@ static State getNewState();
 
 static HiddenState getNewHiddenState();
 
-static void updateModel(Model *model, Model *grad);
+static void updateModel(Model *model, Model *grad, float learning_rate);
+static void updateGrad(Model *grad, Model *tmp_grad);
