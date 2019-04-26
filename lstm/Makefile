@@ -1,7 +1,7 @@
 
-EXECUTABLE := cudaSaxpy
+EXECUTABLE := cudaLstm
 
-CU_FILES   := saxpy.cu
+CU_FILES   := lstm.cu
 
 CU_DEPS    :=
 
@@ -19,7 +19,7 @@ NVCC=nvcc
 NVCCFLAGS=-O3 -m64 --gpu-architecture compute_61
 
 
-OBJS=$(OBJDIR)/main.o  $(OBJDIR)/saxpy.o
+OBJS=$(OBJDIR)/main.o  $(OBJDIR)/lstm.o
 
 
 .PHONY: dirs clean

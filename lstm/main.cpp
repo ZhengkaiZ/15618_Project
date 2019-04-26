@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include <string>
 
-void saxpyCuda(int N, float alpha, float* x, float* y, float* result);
+void train();
 void printCudaInfo();
 
 
@@ -57,9 +57,7 @@ int main(int argc, char** argv)
 
     printCudaInfo();
 
-    for (int i=0; i<3; i++) {
-      saxpyCuda(N, alpha, xarray, yarray, resultarray);
-    }
+    train();
 
     delete [] xarray;
     delete [] yarray;
