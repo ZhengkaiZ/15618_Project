@@ -122,12 +122,13 @@ float *matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float *Y, in
     for (int i = 0; i < Xh; i++) {
         for (int j = 0; j < Yw; j++) {
             int index_c = indexTrans(i, j, Xh, Yw, false);
-            result[index_c] = 0;
-            for (int k = 0; k < Xh; k++) {
+            float tmp = 0;
+            for (int k = 0; k < Xw; k++) {
                 int index_a = indexTrans(i, k, Xh, Xw, X_isTrans);
                 int index_b = indexTrans(k, j, Yh, Yw, Y_isTrans);
-                result[index_c] += X[index_a] * Y[index_b];
+                tmp += X[index_a] * Y[index_b];
             }
+            result[index_c] = tmp;
         }
     }
     return result;
