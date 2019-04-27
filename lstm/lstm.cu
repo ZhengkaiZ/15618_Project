@@ -225,6 +225,16 @@ pointwise_multi(float *nums1, float *nums2, float *output, int N) {
     output[index] = nums1[index] * nums2[index];
 }
 
+__global__ void
+pointwise_multi(float *nums1, float *nums2, float *num3, float *output, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= N)
+        return;
+
+    output[index] = nums1[index] * nums2[index] * num3[index];
+}
+
 /*************************************************************************
  *
  *  Other Math Functions
@@ -366,9 +376,12 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     cudaMalloc((void **) &temp, H * sizeof(float));
 
     // Hidden to output gradient
+    // dWy = h.T @ dy
     matrix_multi <<< blockHD, blockDim >>> (state->h, H, 1, false, dy, 1, D, false, grad->W_y);
+    // dby = dy
     cudaMemcpy(grad->b_y, dy, D * sizeof(float), cudaMemcpyDeviceToDevice);
     cudaThreadSynchronize();
+    // dh = dy @ Wy.T + dh_next
     matrix_multi <<< rowD, rowDim >>> (dy, 1, D, false, model.W_y, H, D, true, dh);
     cudaThreadSynchronize();
     pointwise_add <<< lineH, lineDim >>> (dh, dh_next, dh, H);
@@ -376,74 +389,77 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
 
     // Gradient for h_o in
     // h = h_o * tanh(c)
+    // dho = tanh(c) * dh * dsigmoid(ho)
     float *dho = grad->b_o;
     tanh <<< lineH, lineDim >>> (state->c, dho, H);
     dsigmoid <<< lineH, lineDim >>> (hiddenState->h_o, temp, H);
     cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (dho, dh, dho, H);
-    cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (dho, temp, dho, H);
+    pointwise_multi <<< lineH, lineDim >>> (dho, dh, temp, dho, H);
     cudaThreadSynchronize();
 
     // Gradient for c in
     // h = h_o * tanh(c)
+    // dc = ho * dh * dtanh(c) + dc_next
     dtanh <<< lineH, lineDim >>> (state->c, dc, H);
     cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_o, dc, dc, H);
-    cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (dh, dc, dc, H);
+    pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_o, dh, dc, dc, H);
     cudaThreadSynchronize();
     pointwise_add <<< lineH, lineDim >>> (dc_next, dc, dc, H);
     cudaThreadSynchronize();
 
     // Gradient for h_f in
     // c = h_f * c_old + h_i * h_c
+    // dhf = c_old * dc * dsigmoid(hf)
     float *dhf = grad->b_f;
     dsigmoid <<< lineH, lineDim >>> (hiddenState->h_f, dhf, H);
     cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (old_state->c, dhf, dhf, H);
-    cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (dc, dhf, dhf, H);
+    pointwise_multi <<< lineH, lineDim >>> (old_state->c, dc, dhf, dhf, H);
     cudaThreadSynchronize();
 
     // Gradient for h_i in
     // c = h_f * c_old + h_i * h_c
+    // dhi = hc * dc * dsigmoid(hi)
     float *dhi = grad->b_i;
     dsigmoid <<< lineH, lineDim >>> (hiddenState->h_i, dhi, H);
     cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_c, dhi, dhi, H);
-    cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (dc, dhi, dhi, H);
+    pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_c, dc, dhi, dhi, H);
     cudaThreadSynchronize();
 
     // Gradient for h_c in
     // c = h_f * c_old + h_i * h_c
+    // dhc = hi * dc * dtanh(hc)
     float *dhc = grad->b_c;
     dtanh <<< lineH, lineDim >>> (hiddenState->h_c, dhc, H);
     cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_i, dhc, dhc, H);
-    cudaThreadSynchronize();
-    pointwise_multi <<< lineH, lineDim >>> (dhc, dc, dhc, H);
+    pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_i, dc, dhc, dhc, H);
     cudaThreadSynchronize();
 
     // Gate gradients
+    // dWf = X.T @ dhf
     matrix_multi <<< blockZH, blockDim >>> (hiddenState->X, Z, 1, false, dhf, 1, H, false, grad->W_f);
+    // dWi = X.T @ dhi
     matrix_multi <<< blockZH, blockDim >>> (hiddenState->X, Z, 1, false, dhi, 1, H, false, grad->W_i);
+    // dWo = X.T @ dho
     matrix_multi <<< blockZH, blockDim >>> (hiddenState->X, Z, 1, false, dho, 1, H, false, grad->W_o);
+    // dWc = X.T @ dhc
     matrix_multi <<< blockZH, blockDim >>> (hiddenState->X, Z, 1, false, dhc, 1, H, false, grad->W_c);
-    cudaThreadSynchronize();
 
     float *dXf, *dXi, *dXo, *dXc;
     cudaMalloc((void **) &dXf, Z * sizeof(float));
     cudaMalloc((void **) &dXi, Z * sizeof(float));
     cudaMalloc((void **) &dXo, Z * sizeof(float));
     cudaMalloc((void **) &dXc, Z * sizeof(float));
+    // dXf = dhf @ Wf.T
     matrix_multi <<< rowZ, rowDim >>> (dhf, 1, H, false, model.W_f, Z, H, true, dXf);
+    // dXi = dhi @ Wi.T
     matrix_multi <<< rowZ, rowDim >>> (dhi, 1, H, false, model.W_i, Z, H, true, dXi);
+    // dXo = dho @ Wo.T
     matrix_multi <<< rowZ, rowDim >>> (dho, 1, H, false, model.W_o, Z, H, true, dXo);
+    // dXc = dhc @ Wc.T
     matrix_multi <<< rowZ, rowDim >>> (dhc, 1, H, false, model.W_c, Z, H, true, dXc);
     cudaThreadSynchronize();
 
+    // dX = dXo + dXc + dXi + dXf
     float *dX;
     cudaMalloc((void **) &dX, Z * sizeof(float));
     pointwise_add <<< lineZ, lineDim >>> (dXf, dXc, dX, Z);
@@ -453,7 +469,9 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     pointwise_add <<< lineZ, lineDim >>> (dX, dXo, dX, Z);
     cudaThreadSynchronize();
 
+    // dh_next = dX[:, :H]
     cudaMemcpy(dX, dh_next, H * sizeof(float), cudaMemcpyDeviceToDevice);
+    // dc_next = hf * dc
     pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_f, dc, dc_next, H);
     cudaThreadSynchronize();
 
