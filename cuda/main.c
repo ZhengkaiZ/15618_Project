@@ -163,7 +163,7 @@ static void cell_backward(Model *grad, float **prob, int y_train, State *old_sta
     float *dXc = matrixMultiTrans(dhc, 1, H, false, model.W_c, Z, H, true);
 //
     for (int i = H; i < Z; i++) {
-        prob[t][i-H] = dXf[i-H] + dXc[i-H] + dXi[i-H] + dXo[i-H];
+        prob[t][i-H] = dXf[i] + dXc[i] + dXi[i] + dXo[i];
     }
 //
     for (int i = 0; i < H; i++) {
