@@ -212,9 +212,8 @@ void train(int *X, int *Y, Model *grad) {
     }
 
     for (int t = TIME; t >= 1; t--) {
-        for (int l = LAYER; l >= 1; l--) {
-            printf("%d ", (t - 1) * (LAYER + 1) + l);
-            cell_backward(grad, probs, Y[t - 1], &states[(t - 1) * (LAYER + 1) + l], &states[t * (LAYER + 1) + l], &d_next[l - 1], hiddenState[t * (LAYER + 1) + l], l - 1, t - 1);
+        for (int l = LAYER - 1; l >= 0; l--) {
+            cell_backward(grad, probs, Y[t - 1], &states[(t - 1) * (LAYER + 1) + l], &states[t * (LAYER + 1) + l], &d_next[l], hiddenState[t * (LAYER + 1) + l], l, t - 1);
         }
     }
 }
