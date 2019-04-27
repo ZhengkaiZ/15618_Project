@@ -7,7 +7,7 @@
 #define LAYER 3
 
 // Epoch
-#define EPOCH 100
+#define EPOCH 1
 
 #define TIME 10
 

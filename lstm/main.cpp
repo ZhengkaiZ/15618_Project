@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include <string>
 
-void train();
+void test();
 void printCudaInfo();
 
 
@@ -42,26 +42,9 @@ int main(int argc, char** argv)
     }
     // end parsing of commandline options //////////////////////////////////////
 
-    const float alpha = 2.0f;
-    float* xarray = new float[N];
-    float* yarray = new float[N];
-    float* resultarray = new float[N];
-
-    // load X, Y, store result
-    int totalBytes = sizeof(float) * 3 * N;
-
-    for (int i=0; i<N; i++) {
-        xarray[i] = yarray[i] = i % 10;
-        resultarray[i] = 0.f;
-   }
-
     printCudaInfo();
 
-    train();
-
-    delete [] xarray;
-    delete [] yarray;
-    delete [] resultarray;
+    test();
 
     return 0;
 }
