@@ -97,85 +97,76 @@ static void cell_backward(Model *grad, float *prob, int y_train, State *old_stat
         dy = (float *) malloc(sizeof(float) * D);
         memcpy(dy, prob, D);
         dy[y_train] -= 1.0;
+    } else {   // Problem
+        dy = old_state->dX;
     }
-//    } else {
-//        dy = old_state->dX;
-//    }
 
     // Hidden to output gradient
-//    float a = 0.0;
-//    for (int i = 0; i < D; i++) {
-//        a = dy[i];
-//    }
-
-    grad->W_y = matrixMultiTrans(state->h, 1, H, true, dy, 1, D, false);
+    grad->W_y = matrixMultiTrans(state->h, 1, H, true, dy, H, Z, false);
     grad->b_y = dy;
     float *dh = matrixMultiTrans(dy, 1, D, false, model.W_y, H, D, true);
     for (int i = 0; i < H; i++) {
         dh[i] += dh_next[i];
     }
 
-//
-//    // Gradient for h_o in
-//    // h = h_o * tanh(c)
+    // Gradient for h_o in
+    // h = h_o * tanh(c)
     float *dho = (float *) malloc(H * sizeof(float));
     for (int i = 0; i < H; i++) {
         dho[i] = tanhf(state->c[i]) * dh[i] * dsigmoid(hiddenState.h_o[i]);
     }
-    printf("Backward");
-//
-    // Gradient for c in
-    // h = h_o * tanh(c)
+
+//    // Gradient for c in
+//    // h = h_o * tanh(c)
     float *dc = (float *) malloc(H * sizeof(float));
     for (int i = 0; i < H; i++) {
         dc[i] = hiddenState.h_o[i] * dh[i] * dtanh(state->c[i]) + dc_next[i];
     }
-
-    // Gradient for h_f in
-    // c = h_f * c_old + h_i * h_c
+//
+//    // Gradient for h_f in
+//    // c = h_f * c_old + h_i * h_c
     float *dhf = (float *) malloc(H * sizeof(float));
     for (int i = 0; i < H; i++) {
         dhf[i] = old_state->c[i] * dc[i] * dsigmoid(hiddenState.h_f[i]);
     }
-
-    // Gradient for h_i in
-    // c = h_f * c_old + h_i * h_c
+//
+//    // Gradient for h_i in
+//    // c = h_f * c_old + h_i * h_c
     float *dhi = (float *) malloc(H * sizeof(float));
     for (int i = 0; i < H; i++) {
         dhi[i] = hiddenState.h_c[i] * dc[i] * dsigmoid(hiddenState.h_i[i]);
     }
-
-    // Gradient for h_c in
-    // c = h_f * c_old + h_i * h_c
+//
+//    // Gradient for h_c in
+//    // c = h_f * c_old + h_i * h_c
     float *dhc = (float *) malloc(H * sizeof(float));
     for (int i = 0; i < H; i++) {
         dhc[i] = hiddenState.h_i[i] * dc[i] * dtanh(hiddenState.h_c[i]);
     }
-
-    // Gate gradients
+//
+//    // Gate gradients
     grad->W_f = matrixMultiTrans(hiddenState.X, 1, Z, true, dhf, 1, H, false);
     grad->b_f = dhf;
-
+//
     grad->W_i = matrixMultiTrans(hiddenState.X, 1, Z, true, dhi, 1, H, false);
     grad->b_i = dhi;
-
+//
     grad->W_o = matrixMultiTrans(hiddenState.X, 1, Z, true, dho, 1, H, false);
     grad->b_o = dho;
-
+//
     grad->W_c = matrixMultiTrans(hiddenState.X, 1, Z, true, dhc, 1, H, false);
     grad->b_c = dhc;
-
+//
     float *dXf = matrixMultiTrans(dhf, 1, H, false, model.W_f, Z, H, true);
     float *dXi = matrixMultiTrans(dhi, 1, H, false, model.W_i, Z, H, true);
     float *dXo = matrixMultiTrans(dho, 1, H, false, model.W_o, Z, H, true);
     float *dXc = matrixMultiTrans(dhc, 1, H, false, model.W_c, Z, H, true);
-
-    float *dX = new_state->dX;
 //
+    float *dX = new_state->dX;
     for (int i = 0; i < Z; i++) {
         dX[i] = dXf[i] + dXc[i] + dXi[i] + dXo[i];
     }
-
+//
     for (int i = 0; i < H; i++) {
         dh_next[i] = dX[i];
         dc_next[i] = hiddenState.h_f[i] * dc[i];
@@ -191,6 +182,7 @@ void train(int *X, int *Y, Model *grad) {
     int i = 0;
     for (int t = 0; t < TIME; t++) {
         states[i] = getNewState();
+        hiddenState[i] = getNewHiddenState();
         probs[t] = (float *) malloc(sizeof(float) * D);
 
         memcpy(states[i].h, &X[t * D], H);    // Initialize h(0) to input
@@ -210,17 +202,15 @@ void train(int *X, int *Y, Model *grad) {
     State d_next = getNewState();
     memset(d_next.h, 0, H);
     memset(d_next.c, 0, H);
-
     for (int t = TIME - 1; t >= 0; t--) {
-        for (int l = LAYER - 1; l >= 0; l--) {
+        for (int l = LAYER ; l >= 1; l--) {
             cell_backward(grad, probs[t], Y[t], &states[t * LAYER + l - 1], &states[t * LAYER + l], &d_next, hiddenState[t * LAYER + l], l);
         }
     }
-
 }
 
 void SGD(int **X, int **Y, State *state, float learning_rate, int num_samples) {
-    for (int i = 0; i < EPOCH; i++) {
+    for (int i = 0; i < 1; i++) {
         for (int j = 0; j < num_samples; j++) {
             Model tmp_grad = getNewModel();
             train(X[j], Y[j], &tmp_grad);
