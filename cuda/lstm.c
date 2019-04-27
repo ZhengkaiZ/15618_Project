@@ -20,9 +20,8 @@ State getNewState() {
     State state;
     state.h = (float *) malloc(sizeof(float) * H);
     state.c = (float *) malloc(sizeof(float) * H);
-    
+
     state.dX = (float *) malloc(sizeof(float) * Z);
-    
     return state;
 }
 
@@ -34,6 +33,7 @@ HiddenState getNewHiddenState() {
     hiddenState.h_o = (float *) malloc(sizeof(float) * H);
 
     hiddenState.X = (float *) malloc(sizeof(float) * Z);
+
     return hiddenState;
 }
 
