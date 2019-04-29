@@ -3,7 +3,7 @@
 #define Z 138
 
 // Layer Count
-#define LAYER 3
+#define LAYER 1
 
 // Epoch
 #define EPOCH 100

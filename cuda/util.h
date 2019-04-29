@@ -26,4 +26,6 @@ float *matrixMulti(float *X, int X_w, int X_h, float *Y, int Y_w, int Y_h);
 
 float *matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float *Y, int Y_h, int Y_w, bool Y_isTrans);
 
-//static void showWeights(float *X, int lenX, char *name);
+void showWeights(float *X, int lenX, char *name);
+
+void initValues(float *input, int lenX, float value);

@@ -1,27 +1,40 @@
 #include "struct.h"
+#include "util.h"
 
 Model getNewModel() {
     Model model;
     model.W_f = (float *) malloc(sizeof(float) * Z * H);
+    initValues(model.W_f, Z * H, 0.1);
     model.W_i = (float *) malloc(sizeof(float) * Z * H);
+    initValues(model.W_i, Z * H, 0.1);
     model.W_c = (float *) malloc(sizeof(float) * Z * H);
+    initValues(model.W_c, Z * H, 0.1);
     model.W_o = (float *) malloc(sizeof(float) * Z * H);
+    initValues(model.W_o, Z * H, 0.1);
     model.W_y = (float *) malloc(sizeof(float) * H * D);
+    initValues(model.W_y, H * D, 0.1);
 
     model.b_f = (float *) malloc(sizeof(float) * H);
+    initValues(model.b_f, H, 0.0);
     model.b_i = (float *) malloc(sizeof(float) * H);
+    initValues(model.b_i, H, 0.0);
     model.b_c = (float *) malloc(sizeof(float) * H);
+    initValues(model.b_c, H, 0.0);
     model.b_o = (float *) malloc(sizeof(float) * H);
+    initValues(model.b_o, H, 0.0);
     model.b_y = (float *) malloc(sizeof(float) * D);
+    initValues(model.b_y, D, 0.0);
     return model;
 }
 
 State getNewState() {
     State state;
-    state.h = (float *) malloc(sizeof(float) * H);
-    state.c = (float *) malloc(sizeof(float) * H);
-
-    state.dX = (float *) malloc(sizeof(float) * Z);
+    state.h = (float *) calloc(H, sizeof(float));
+    initValues(state.h, H, 0.0);
+    state.c = (float *) calloc(H, sizeof(float));
+    initValues(state.c, H, 0.0);
+    state.dX = (float *) calloc(Z, sizeof(float));
+    initValues(state.dX, Z, 0.0);
     return state;
 }
 
