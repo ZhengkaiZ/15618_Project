@@ -1,3 +1,5 @@
+#include <stdlib.h>
+#include <string.h>
 #include "util.h"
 
 void softmax(float *input, int input_len) {
@@ -17,7 +19,8 @@ void softmax(float *input, int input_len) {
     }
 
     for (i = 0; i < input_len; i++) {
-        input[i] = expf(input[i] - m - log(sum));
+//        input[i] = expf(input[i] - m - log(sum));
+        input[i] = expf(input[i] - m) / sum;
     }
 }
 
@@ -26,7 +29,7 @@ float sigmoid_forward(float x) {
     float return_value;
 
     exp_value = exp((double) -x);
-    return_value = 1 / (1 + exp_value);
+    return_value = 1.0 / (1.0 + exp_value);
 
     return return_value;
 }
@@ -134,11 +137,17 @@ float *matrixMultiTrans(float *X, int X_h, int X_w, bool X_isTrans, float *Y, in
     return result;
 }
 
-//static void showWeights(float *X, int lenX, char *name) {
-//    printf("The weights of %s is: \n", name);
-//    for (int i = 0; i < lenX; i++) {
-//        printf("%f ", X[i]);
-//    }
-//    printf("\n");
-//}
+void showWeights(float *X, int lenX, char *name) {
+    printf("The weights of %s is: \n", name);
+    for (int i = 0; i < lenX; i++) {
+        printf("%f ", X[i]);
+    }
+    printf("\n");
+}
+
+void initValues(float *input, int lenX, float value) {
+    for (int i = 0; i < lenX; i++) {
+        input[i] = value;
+    }
+}
 
