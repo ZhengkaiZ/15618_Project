@@ -217,11 +217,6 @@ void train(int *X, int *Y, Model *grad) {
             cell_backward(grad, probs, Y[t - 1], &states[(t - 1) * (LAYER + 1) + l], &states[t * (LAYER + 1) + l],
                     &d_next[l], hiddenState[t * (LAYER + 1) + l], l, t - 1);
         }
-//        printf("%d\n", t);
-//        showWeights(grad->W_f, Z * H, "W_f");
-        if (t == 6) {
-            break;
-        }
     }
 }
 
