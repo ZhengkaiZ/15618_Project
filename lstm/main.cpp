@@ -44,7 +44,8 @@ int main(int argc, char** argv)
 
     printCudaInfo();
 
-    test();
+    //test();
+    run_large();
 
     return 0;
 }

@@ -27,26 +27,58 @@ dim3 gridHD((H-1)/gridsDim.x+1, (D-1)/gridsDim.y+1);
 dim3 gridZH((Z-1)/gridsDim.x+1, (H-1)/gridsDim.y+1);
 
 
+
+
+void showWeights(float *input, int len, char *name) {
+    printf("the weights are %s\n", name);
+    for (int i = 0; i < len; i++) {
+	printf("%f ", input[i]);
+    }
+    printf("\n");
+}
+
+
+
 /*************************************************************************
  *
  *  Memory Allocate and Free Functions
  *
  *************************************************************************/
 
+
 void
 allocateModel(Model* model) {
     cudaMalloc((void **) &model->W_f, Z * H * sizeof(float));
+    cudaMemset(model->W_f, 0.1, Z * H * sizeof(float));
+    
     cudaMalloc((void **) &model->W_i, Z * H * sizeof(float));
+    cudaMemset(model->W_i, 0.1, Z * H * sizeof(float));
+    
     cudaMalloc((void **) &model->W_c, Z * H * sizeof(float));
+    cudaMemset(model->W_c, 0.1, Z * H * sizeof(float));
+    
     cudaMalloc((void **) &model->W_o, Z * H * sizeof(float));
+    cudaMemset(model->W_o, 0.1, Z * H * sizeof(float));
+    
     cudaMalloc((void **) &model->W_y, H * D * sizeof(float));
+    cudaMemset(model->W_y, 0.1, D * H * sizeof(float));
 
     cudaMalloc((void **) &model->b_f, H * sizeof(float));
+    cudaMemset(model->b_f, 0.0, H * sizeof(float));
+
     cudaMalloc((void **) &model->b_i, H * sizeof(float));
+    cudaMemset(model->b_i, 0.0, H * sizeof(float));
+
     cudaMalloc((void **) &model->b_c, H * sizeof(float));
+    cudaMemset(model->b_c, 0.0, H * sizeof(float));
+
     cudaMalloc((void **) &model->b_o, H * sizeof(float));
+    cudaMemset(model->b_o, 0.0, H * sizeof(float));
+
     cudaMalloc((void **) &model->b_y, D * sizeof(float));
+    cudaMemset(model->b_y, 0.0, D * sizeof(float));
 }
+
 
 void
 freeModel(Model *model) {
@@ -66,7 +98,9 @@ freeModel(Model *model) {
 void
 allocateState(State* state) {
     cudaMalloc((void **) &state->h, H * sizeof(float));
+    cudaMemset(state->h, 0.0, H * sizeof(float));
     cudaMalloc((void **) &state->c, H * sizeof(float));
+    cudaMemset(state->c, 0.0, H * sizeof(float));
 }
 
 void
@@ -300,11 +334,11 @@ sum(float* num, float* sum, int N) {
 }
 
 void
-increase_float(float* device_int) {
-    float temp;
-    cudaMemcpy(&temp, device_int, sizeof(float), cudaMemcpyDeviceToHost);
-    temp += 1.0;
-    cudaMemcpy(device_int, &temp, sizeof(float), cudaMemcpyHostToDevice);
+increase_float(float* prob, int index) {
+    float temp = 1.0;
+    //cudaMemcpy(&temp, device_int, sizeof(float), cudaMemcpyDeviceToHost);
+    //temp += 1.0;
+    cudaMemcpy(prob + index, &temp, sizeof(float), cudaMemcpyHostToDevice);
 }
 
 void
@@ -327,10 +361,13 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     cudaMemcpy(h->X, old_state->h, H * sizeof(float), cudaMemcpyDeviceToDevice);
     cudaMemcpy(h->X + H, prob, D * sizeof(float), cudaMemcpyDeviceToDevice);
 
+    float *print = (float *) malloc(D * sizeof(float));
     float *temp;
     int len = H > D? H: D;
     cudaMalloc((void **) &temp, len * sizeof(float));
-
+    
+    //cudaMemcpy(print, prob, D * sizeof(float), cudaMemcpyDeviceToHost);
+   // showWeights(print, D, "probs");
     // Forget Gate
     // hf = sigmoid(X @ Wf + bf)
     matrix_multi_single <<< lineH, lineDim >>> (h->X, model.W_f, Z, H, h->h_f);
@@ -508,31 +545,42 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     cudaFree(temp);
 }
 
+
 void
 train(int *X, int *Y, Model *grad) {
     State **states = (State **) malloc(sizeof(State*) * (TIME + 1));
     HiddenState **hiddenState = (HiddenState **) malloc(sizeof(HiddenState*) * (TIME + 1));
     float **probs = (float **) malloc(sizeof(float *) * TIME);
+
     int i, k, t, l;
     for(i = 0; i <= TIME; i++) {
         states[i] = (State *)malloc(sizeof(State) * (LAYER + 1));
         hiddenState[i] = (HiddenState *)malloc(sizeof(HiddenState) * (LAYER + 1));
         cudaMalloc((void **) &probs[i], D * sizeof(float));
+	cudaMemset(probs[i], 0, D * sizeof(float));
     }
     for (i = 0; i <= LAYER; i++) {
         allocateState(&states[0][i]);
         allocateHiddenState(&hiddenState[0][i]);
     }
 
+    float *print = (float *) malloc(D * sizeof(float));
     // Forward
     for (t = 1; t <= TIME; t++) {
         allocateState(&states[t][0]);
         allocateHiddenState(&hiddenState[t][0]);
 
-        cudaMemset(probs[t-1], 0, D);               // Initialize prob to 0
-        increase_float(&probs[t-1][X[t-1]]);        // get one hot encode
+        cudaMemset(probs[t-1], 0, D * sizeof(float));               // Initialize prob to 0
+        increase_float(probs[t - 1], X[t-1]);        // get one hot encode
+
+	cudaMemcpy(print, probs[t - 1], D * sizeof(float), cudaMemcpyDeviceToHost);
+        showWeights(print, D, "probs");
+
         cudaMemcpy(states[t][0].h, probs[t-1], H * sizeof(float), cudaMemcpyDeviceToDevice);  // Initialize h(0) to input
-        cudaMemset(states[t][0].c, 0, H);           // Initialize c(0) to 0
+        cudaMemset(states[t][0].c, 0, H * sizeof(float));           // Initialize c(0) to 0
+
+//	cudaMemcpy(print, probs[t - 1], D * sizeof(float), cudaMemcpyDeviceToHost);
+  //      showWeights(print, D, "probs");
 
         // Hidden Layer operate at time t
         for (l = 1; l <= LAYER; l++) {
@@ -540,6 +588,8 @@ train(int *X, int *Y, Model *grad) {
             allocateHiddenState(&hiddenState[t][l]);
             cell_forward(&states[t-1][l], &states[t][l], &hiddenState[t][l], probs[t - 1]);
         }
+    //	cudaMemcpy(probs[t - 1], print, D * sizeof(float), cudaMemcpyDeviceToHost);
+    //    showWeights(print, D, "probs");
     }
 
 
@@ -548,8 +598,8 @@ train(int *X, int *Y, Model *grad) {
     State d_next[LAYER];
     for (k = 0; k < LAYER; k++) {
         allocateState(&d_next[k]);
-        cudaMemset(d_next[k].h, 0, H);
-        cudaMemset(d_next[k].c, 0, H);
+        cudaMemset(d_next[k].h, 0, H * sizeof(float));
+        cudaMemset(d_next[k].c, 0, H * sizeof(float));
     }
 
     for (t = TIME; t >= 1; t--) {
@@ -634,6 +684,23 @@ test() {
 }
 
 void
+run_large() {
+    int num_samples, time;
+    int **mat = build_matrix("../data/", &num_samples, &time);
+    //D = 33278; // update D in header file
+    int **input = (int **) malloc(num_samples * sizeof(int *));
+    int **output = (int**) malloc(num_samples * sizeof(int *));
+    for (int i = 0; i < num_samples; i++) {
+	input[i] = mat[i];
+	output[i] = mat[i] + 1;	
+    }
+    time -= 1;
+    //TIME = 69; // update time in header file
+    
+    SGD(input, output, 1, num_samples);
+}
+
+void
 printCudaInfo() {
 
     // for fun, just print out some stats on the machine
@@ -655,3 +722,52 @@ printCudaInfo() {
     }
     printf("---------------------------------------------------------\n");
 }
+
+int** build_matrix(char *path, int* x, int* y) {
+    int i;
+    int j;
+
+    FILE *file;
+    file = fopen(path, "r");
+    int lenX;
+    int lenY;
+    char p;
+    fscanf(file, "%d", &lenX);
+    fscanf(file, "%c", &p);
+    fscanf(file, "%d", &lenY);
+
+    if (lenY == 0) {
+        lenY = 1;
+    }
+
+    int** mat;
+    mat = (int**) malloc(lenX * sizeof(int *));
+    for(i = 0; i < lenX; i++) {
+        mat[i] = (int *) malloc(lenY * sizeof(int));
+    }
+    
+    printf("%d", lenX);
+    printf("%d", lenY);
+    for(i = 0; i < lenX; i++) {
+        for(j = 0; j < lenY; j++) {
+            fscanf(file, "%d", &mat[i][j]);
+            fscanf(file, "%c", &p);
+            printf("%d ", mat[i][j]);
+            if (p == '\n') {
+                break;
+            }
+        }
+    }
+
+    *x = lenX;
+    if (lenY == 1) {
+        *y = lenY - 1;
+    } else {
+        *y = lenY;
+    }
+
+    fclose(file);
+    return mat;
+}
+
+
