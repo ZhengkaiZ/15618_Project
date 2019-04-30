@@ -11,6 +11,7 @@
 
 #define TIME 10
 
+int **build_matrix(char *path, int* x, int* y);
 // Key Data Structures
 
 typedef struct {
