@@ -307,6 +307,11 @@ pointwise_update(float* m, float* grad, int N, float rate) {
     m[index] += grad[index] * rate;
 }
 
+__global__ void
+change_one_element(float *arr, float value, int index) {
+    arr[index] += value;
+}
+
 /*************************************************************************
  *
  *  Other Math Functions
@@ -355,19 +360,22 @@ decrease_float(float* device_int) {
  *
  *************************************************************************/
 
+void cuda_show_weights(float *input, int length, char *name) {
+    float *print = (float *) malloc(length * sizeof(float));
+    cudaMemcpy(print, input, length * sizeof(float), cudaMemcpyDeviceToHost);
+    showWeights(print, length, name);
+}
+
 void
 cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     // Combine input
     cudaMemcpy(h->X, old_state->h, H * sizeof(float), cudaMemcpyDeviceToDevice);
     cudaMemcpy(h->X + H, prob, D * sizeof(float), cudaMemcpyDeviceToDevice);
 
-    float *print = (float *) malloc(D * sizeof(float));
     float *temp;
     int len = H > D? H: D;
     cudaMalloc((void **) &temp, len * sizeof(float));
-    
-    //cudaMemcpy(print, prob, D * sizeof(float), cudaMemcpyDeviceToHost);
-   // showWeights(print, D, "probs");
+    cudaMemset(temp, 0, len * sizeof(float));
     // Forget Gate
     // hf = sigmoid(X @ Wf + bf)
     matrix_multi_single <<< lineH, lineDim >>> (h->X, model.W_f, Z, H, h->h_f);
@@ -383,7 +391,8 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     // Output Gate
     // ho = sigmoid(X @ Wo + bo)
     matrix_multi_single <<< lineH, lineDim >>> (h->X, model.W_o, Z, H, h->h_o);
-
+    //cuda_show_weights(h->h_o, H, "h_o");
+     
     cudaThreadSynchronize();
     pointwise_add <<< lineH, lineDim >>> (h->h_f, model.b_f, h->h_f, H);
     pointwise_add <<< lineH, lineDim >>> (h->h_i, model.b_i, h->h_i, H);
@@ -391,12 +400,15 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     pointwise_add <<< lineH, lineDim >>> (h->h_o, model.b_o, h->h_o, H);
     cudaThreadSynchronize();
 
+   // cuda_show_weights(h->h_o, H, "h_o");
+     
     sigmoid <<< lineH, lineDim >>> (h->h_f, h->h_f, H);
     sigmoid <<< lineH, lineDim >>> (h->h_i, h->h_i, H);
     tanh <<< lineH, lineDim >>> (h->h_c, h->h_c, H);
-    tanh <<< lineH, lineDim >>> (h->h_o, h->h_o, H);
+    sigmoid <<< lineH, lineDim >>> (h->h_o, h->h_o, H);
     cudaThreadSynchronize();
 
+  //  cuda_show_weights(h->h_o, H, "ho");
     // c = hf * c_old + hi * hc
     // h = ho * tanh(c)
     pointwise_multi <<< lineH, lineDim >>> (h->h_f, old_state->c, temp, H);
@@ -409,21 +421,33 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     pointwise_multi <<< lineH, lineDim >>> (h->h_o, temp, state->h, H);
     cudaThreadSynchronize();
 
+   // cuda_show_weights(h->h_o, H, "h_o");
+     
     // y = h @ Wy + by
     matrix_multi_single <<< lineD, lineDim >>> (state->h, model.W_y, H, D, temp);
     cudaThreadSynchronize();
     pointwise_add <<< lineD, lineDim >>> (temp, model.b_y, prob, D);
     cudaThreadSynchronize();
 
+   // cuda_show_weights(h->h_o, H, "h_o");
+     
     float sum_exp;
     // prob = softmax(y)
     exp_vector <<< lineD, lineDim >>> (prob, D);
     cudaThreadSynchronize();
-    sum <<< single, singleDim >>> (prob, &sum_exp, D);
-    cudaThreadSynchronize();
+
+    //cuda_show_weights(h->h_o, H, "h_o");
+     
+ //   sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
+       
+    sum_exp = thrust::reduce(thrust::device, prob, prob + D);
+    //cudaThreadSynchronize();
+
     devide <<< lineD, lineDim >>> (prob, sum_exp, prob, D);
     cudaThreadSynchronize();
 
+    //cuda_show_weights(model->W_f, D, "W_y");
+     
     cudaFree(temp);
 }
 
@@ -447,8 +471,9 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     cudaMemcpy(dy, grad->b_y, D * sizeof(float), cudaMemcpyDeviceToDevice);
     cudaThreadSynchronize();
     pointwise_add <<< lineH, lineDim >>> (dh, dh_next, dh, H);
+    //cuda_show_weights(dh, H, "dh");
 
-
+     
     // Gradient for h_o in
     // h = h_o * tanh(c)
     // dho = tanh(c) * dh * dsigmoid(ho)
@@ -457,7 +482,7 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     dsigmoid <<< lineH, lineDim >>> (hiddenState->h_o, temp, H);
     cudaThreadSynchronize();
     pointwise_multi <<< lineH, lineDim >>> (dho, dh, temp, dho, H);
-
+    //cuda_show_weights(dho, H, "dho");
 
     // Gradient for c in
     // h = h_o * tanh(c)
@@ -467,14 +492,14 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_o, dh, dc, dc, H);
     cudaThreadSynchronize();
     pointwise_add <<< lineH, lineDim >>> (dc_next, dc, dc, H);
-
+    //cuda_show_weights(dc, H, "dc");
 
     // Gradient for h_f in
     // c = h_f * c_old + h_i * h_c
     // dhf = c_old * dc * dsigmoid(hf)
     float *dhf = grad->b_f;
     dsigmoid <<< lineH, lineDim >>> (hiddenState->h_f, dhf, H);
-
+    //cuda_show_weights(dhf, H, "dhf");
     // Gradient for h_i in
     // c = h_f * c_old + h_i * h_c
     // dhi = hc * dc * dsigmoid(hi)
@@ -491,7 +516,7 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     pointwise_multi <<< lineH, lineDim >>> (old_state->c, dc, dhf, dhf, H);
     pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_c, dc, dhi, dhi, H);
     pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_i, dc, dhc, dhc, H);
-
+    //cuda_show_weights(dhf, H, "dhf");
     // dc_next = hf * dc
     pointwise_multi <<< lineH, lineDim >>> (hiddenState->h_f, dc, dc_next, H);
 
@@ -504,7 +529,7 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     matrix_multi <<< gridZH, gridsDim >>> (hiddenState->X, Z, 1, false, dho, 1, H, false, grad->W_o);
     // dWc = X.T @ dhc
     matrix_multi <<< gridZH, gridsDim >>> (hiddenState->X, Z, 1, false, dhc, 1, H, false, grad->W_c);
-
+    //cuda_show_weights(grad->W_f, H, "w_c");
     float *dXf, *dXi, *dXo, *dXc;
     cudaMalloc((void **) &dXf, Z * sizeof(float));
     cudaMalloc((void **) &dXi, Z * sizeof(float));
@@ -526,7 +551,7 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     cudaMalloc((void **) &X, D * sizeof(float));
     cudaThreadSynchronize();
     pointwise_add <<< lineZ, lineDim >>> (dXf, dXc, dXi, dXo, dX, Z);
-
+    cuda_show_weights(dX, Z, "X");
     // dh_next = dX[:, :H]
     cudaThreadSynchronize();
     cudaMemcpy(dX, dh_next, H * sizeof(float), cudaMemcpyDeviceToDevice);
@@ -556,8 +581,8 @@ train(int *X, int *Y, Model *grad) {
     for(i = 0; i <= TIME; i++) {
         states[i] = (State *)malloc(sizeof(State) * (LAYER + 1));
         hiddenState[i] = (HiddenState *)malloc(sizeof(HiddenState) * (LAYER + 1));
-        cudaMalloc((void **) &probs[i], D * sizeof(float));
-	cudaMemset(probs[i], 0, D * sizeof(float));
+	probs[i] = (float *) malloc(sizeof(float) * D);
+	memset(probs[i], 0, D * sizeof(float));
     }
     for (i = 0; i <= LAYER; i++) {
         allocateState(&states[0][i]);
@@ -570,26 +595,24 @@ train(int *X, int *Y, Model *grad) {
         allocateState(&states[t][0]);
         allocateHiddenState(&hiddenState[t][0]);
 
-        cudaMemset(probs[t-1], 0, D * sizeof(float));               // Initialize prob to 0
-        increase_float(probs[t - 1], X[t-1]);        // get one hot encode
-
-	cudaMemcpy(print, probs[t - 1], D * sizeof(float), cudaMemcpyDeviceToHost);
-        showWeights(print, D, "probs");
+        //cudaMemset(probs[t-1], 0, D * sizeof(float));               // Initialize prob to 0
+    //    increase_float(probs[t - 1], X[t-1]);        // get one hot encodei
+	//problems
+        float *cudaProbs;
+	cudaMalloc((void **) &cudaProbs, D * sizeof(float));
+	probs[t - 1][X[t - 1]] = 1.0;
+	cudaMemcpy(cudaProbs, probs[t - 1], D * sizeof(float), cudaMemcpyHostToDevice);
 
         cudaMemcpy(states[t][0].h, probs[t-1], H * sizeof(float), cudaMemcpyDeviceToDevice);  // Initialize h(0) to input
         cudaMemset(states[t][0].c, 0, H * sizeof(float));           // Initialize c(0) to 0
-
-//	cudaMemcpy(print, probs[t - 1], D * sizeof(float), cudaMemcpyDeviceToHost);
-  //      showWeights(print, D, "probs");
 
         // Hidden Layer operate at time t
         for (l = 1; l <= LAYER; l++) {
             allocateState(&states[t][l]);
             allocateHiddenState(&hiddenState[t][l]);
-            cell_forward(&states[t-1][l], &states[t][l], &hiddenState[t][l], probs[t - 1]);
+            cell_forward(&states[t-1][l], &states[t][l], &hiddenState[t][l], cudaProbs);
         }
-    //	cudaMemcpy(probs[t - 1], print, D * sizeof(float), cudaMemcpyDeviceToHost);
-    //    showWeights(print, D, "probs");
+	probs[t - 1] = cudaProbs;
     }
 
 
@@ -604,8 +627,10 @@ train(int *X, int *Y, Model *grad) {
 
     for (t = TIME; t >= 1; t--) {
         decrease_float(&probs[t-1][Y[t-1]]);
+//	cuda_show_weights(probs[t - 1], D, "probs");
         for (l = LAYER - 1; l >= 0; l--) {
             cell_backward(grad, probs[t-1], &states[t-1][l], &states[t][l], &d_next[l], &hiddenState[t][l]);
+	    //cuda_show_weights(probs[t - 1], D, "probs");
         }
     }
 
@@ -654,7 +679,7 @@ SGD(int **X, int **Y, float learning_rate, int num_samples) {
     for (i = 0; i < EPOCH; i++) {
         for (j = 0; j < num_samples; j++) {
             train(X[j], Y[j], &tmp_grad);
-            updateModel(&tmp_grad, learning_rate);
+           // updateModel(&tmp_grad, learning_rate);
         }
     }
 
