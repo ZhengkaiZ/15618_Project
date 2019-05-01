@@ -6,6 +6,7 @@
 void test();
 void printCudaInfo();
 void run_large();
+void test_kernel();
 
 void usage(const char* progname) {
     printf("Usage: %s [options]\n", progname);
@@ -44,8 +45,8 @@ int main(int argc, char** argv)
 
     printCudaInfo();
 
-    test();
+    //test();
     //run_large();
-
+    test_kernel();
     return 0;
 }

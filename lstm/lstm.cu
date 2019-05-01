@@ -9,7 +9,7 @@
 #include "CycleTimer.h"
 #include "lstm.h"
 
-
+#define BLK 8
 dim3 singleDim(1, 1);
 dim3 lineDim(256, 1);
 dim3 rowDim(1, 256);
@@ -26,7 +26,7 @@ dim3 rowZ(1, (Z - 1) / lineDim.x + 1);
 dim3 gridHD((H-1)/gridsDim.x+1, (D-1)/gridsDim.y+1);
 dim3 gridZH((Z-1)/gridsDim.x+1, (H-1)/gridsDim.y+1);
 
-
+//int BLK = 8;
 
 
 void showWeights(float *input, int len, char *name) {
@@ -129,11 +129,109 @@ freeHiddenState(HiddenState* state) {
     cudaFree(state->X);
 }
 
+int updiv(int n, int d) {
+    return (n + d - 1) / d;
+}
+
 /*************************************************************************
  *
  *  Matrix Functions
  *
  *************************************************************************/
+__device__ int
+RM(int r, int c, int width, int height, bool trans) {
+    if (trans) {
+	return c * height + r;
+    }
+    return r * width + c;
+}
+
+__global__ void 
+cudaBlockKernel(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_B, int w_B, bool y_trans, float *result) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int hA, wA, hB, wB;
+
+    int bi = threadIdx.y;
+    int bj = threadIdx.x;
+ 
+    if (x_trans) {
+        hA = w_A;
+	wA = h_A;
+    } else {
+	hA = h_A;
+	wA = w_A;
+    }
+    if (y_trans) {
+        hB = w_B;
+	wB = h_B;
+    } else {
+	hB = h_B;
+	wB = w_B;
+    }
+
+    __shared__ float subA[BLK * BLK];
+    __shared__ float subB[BLK * BLK];
+    float sum = 0;
+
+    for (int k = 0; k < wA; k += BLK) {
+	if (i < hA && k + bj < wA) {
+	    subA[RM(bi, bj, BLK, BLK, false)] = matA[RM(i, k + bj, wA, hA, x_trans)];
+	} else {
+	    subA[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	if (j < wB && k + bi < hB) {
+	    subB[RM(bi, bj, BLK, BLK, false)] = matB[RM(k + bi, j, wB, hB, y_trans)];
+	} else {
+	    subB[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	__syncthreads();
+
+	for (int bk = 0; bk < BLK; bk++) {
+	    sum += subA[RM(bi, bk, BLK, BLK, false)] * subB[RM(bk, bj, BLK, BLK, false)];
+	}
+	__syncthreads();
+    }
+    if (i < hA && j < wB) 
+    	result[RM(i, j, wB, hA, false)] = sum;
+}
+
+void
+cudaMultMatrixBlocked(float *dmatA, int hA, int wA, bool x_trans, float *dmatB, int hB, int wB, bool y_trans, float *dmatC) {
+    dim3 threadsPerBlock(BLK, BLK);
+    dim3 blocks(updiv(hA, BLK) + 1, updiv(wB, BLK) + 1);
+    cudaBlockKernel<<<blocks, threadsPerBlock>>>(dmatA, hA, wA, x_trans, dmatB, hB, wB, y_trans, dmatC);
+}
+
+void 
+test_kernel() {
+    int hA, wA, hB, wB;
+    hA = 11;
+    wA = 5;
+    hB = 5;
+    wB = 1;
+    float *A = (float*) malloc(hA * wA * sizeof(float));
+    float *B = (float*) malloc(hB * wB * sizeof(float));
+    float *C = (float*) malloc(hA * wB * sizeof(float));
+    float *matC, *matA, *matB;
+    cudaMalloc(&matA, hA * wA * sizeof(float));
+    cudaMalloc(&matB, hB * wB * sizeof(float));
+    cudaMalloc(&matC, hA * wB * sizeof(float)); 
+    for (int i = 0; i < hA * wA; i++) {
+    	A[i] = i;
+    }
+    for (int i = 0; i < hB * wB; i++) {
+	B[i] = i;
+    }
+    cudaMemcpy(matA, A, hA * wA * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(matB, B, hB * wB * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMultMatrixBlocked(matA, wA, hA, true, matB, wB, hB, true, matC);
+    cudaMemcpy(C, matC, hA * wB * sizeof(float), cudaMemcpyDeviceToHost);
+    for (int i = 0; i < hA * wB; i++) {
+	printf("%f ", C[i]);
+    }
+    printf("\n");
+}
 
 __device__ int
 index(int i, int j, int width, int height, bool column_base) {
@@ -436,7 +534,7 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     exp_vector <<< lineD, lineDim >>> (prob, D);
     cudaThreadSynchronize();
 
-    //cuda_show_weights(h->h_o, H, "h_o");
+   // cuda_show_weights(h->h_o, H, "h_o");
      
  //   sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
        
@@ -551,7 +649,7 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     cudaMalloc((void **) &X, D * sizeof(float));
     cudaThreadSynchronize();
     pointwise_add <<< lineZ, lineDim >>> (dXf, dXc, dXi, dXo, dX, Z);
-    cuda_show_weights(dX, Z, "X");
+    //cuda_show_weights(dX, Z, "X");
     // dh_next = dX[:, :H]
     cudaThreadSynchronize();
     cudaMemcpy(dX, dh_next, H * sizeof(float), cudaMemcpyDeviceToDevice);
@@ -673,13 +771,14 @@ updateModel(Model* grad, float learning_rate) {
 void
 SGD(int **X, int **Y, float learning_rate, int num_samples) {
     int i, j;
+    
     Model tmp_grad;
     allocateModel(&tmp_grad);
 
     for (i = 0; i < EPOCH; i++) {
         for (j = 0; j < num_samples; j++) {
             train(X[j], Y[j], &tmp_grad);
-           // updateModel(&tmp_grad, learning_rate);
+            updateModel(&tmp_grad, learning_rate);
         }
     }
 
@@ -688,18 +787,21 @@ SGD(int **X, int **Y, float learning_rate, int num_samples) {
 
 void
 test() {
-    int *input, *output, i;
-    input = (int*)malloc(sizeof(int) * TIME);
-    output = (int*)malloc(sizeof(int) * TIME);
-    for (i = 0; i < TIME; i++) {
-        input[i] = i % D;
-        output[i] = i % D;
+    int **input, **output, i;
+    int num_samples = 5;
+    input = (int**)malloc(sizeof(int*) * num_samples);
+    output = (int**)malloc(sizeof(int*) * num_samples);
+    for (i = 0; i < num_samples; i++) {
+        input[i] = (int *)malloc(sizeof(int) * TIME);
+        output[i] = (int *)malloc(sizeof(int) * TIME);
+	memset(input[i], 0, TIME * sizeof(float));
+	memset(output[i], 0, TIME * sizeof(float));
     }
-
+//
     double startTime = CycleTimer::currentSeconds();
     allocateModel(&model);
 
-    SGD(&input, &output, 1, 1);
+    SGD(input, output, 1, num_samples);
 
     freeModel(&model);
     double endTime = CycleTimer::currentSeconds();
@@ -711,7 +813,7 @@ test() {
 void
 run_large() {
     int num_samples, time;
-    int **mat = build_matrix("../data/", &num_samples, &time);
+    int **mat = build_matrix("../data/train.txt", &num_samples, &time);
     //D = 33278; // update D in header file
     int **input = (int **) malloc(num_samples * sizeof(int *));
     int **output = (int**) malloc(num_samples * sizeof(int *));
@@ -720,9 +822,9 @@ run_large() {
 	output[i] = mat[i] + 1;	
     }
     time -= 1;
-    //TIME = 69; // update time in header file
-    
-    SGD(input, output, 1, num_samples);
+//    TIME = 69; // update time in header file
+ 
+    SGD(input, output, 1, 1);
 }
 
 void
@@ -777,7 +879,7 @@ int** build_matrix(char *path, int* x, int* y) {
         for(j = 0; j < lenY; j++) {
             fscanf(file, "%d", &mat[i][j]);
             fscanf(file, "%c", &p);
-            printf("%d ", mat[i][j]);
+           // printf("%d ", mat[i][j]);
             if (p == '\n') {
                 break;
             }
