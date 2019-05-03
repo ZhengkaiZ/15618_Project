@@ -10,6 +10,7 @@
 #include "lstm.h"
 
 #define BLK 8
+
 dim3 singleDim(1, 1);
 dim3 lineDim(256, 1);
 dim3 rowDim(1, 256);
@@ -138,6 +139,33 @@ int updiv(int n, int d) {
  *  Matrix Functions
  *
  *************************************************************************/
+__device__ float
+exp_vector_p(float input) {
+    return exp(input);
+}
+
+__device__ float
+sigmoid_p(float input) {
+    return 1 / (1 + exp(-input));
+}
+
+__device__ float
+dsigmoid_p(float input) {
+    return input * (1 - input);
+}
+
+__device__ float
+tanh_p(float input) {
+
+    return tanhf(input);
+}
+
+__device__ float
+dtanh_p(float input) {
+
+    return 1 - input * input;
+}
+
 __device__ int
 RM(int r, int c, int width, int height, bool trans) {
     if (trans) {
@@ -194,6 +222,162 @@ cudaBlockKernel(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_
     }
     if (i < hA && j < wB) 
     	result[RM(i, j, wB, hA, false)] = sum;
+}
+
+__global__ void 
+cudaBlockKernel_sigmoid(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_B, int w_B, bool y_trans, float *matC, float *result) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int hA, wA, hB, wB;
+
+    int bi = threadIdx.y;
+    int bj = threadIdx.x;
+ 
+    if (x_trans) {
+        hA = w_A;
+	wA = h_A;
+    } else {
+	hA = h_A;
+	wA = w_A;
+    }
+    if (y_trans) {
+        hB = w_B;
+	wB = h_B;
+    } else {
+	hB = h_B;
+	wB = w_B;
+    }
+
+    __shared__ float subA[BLK * BLK];
+    __shared__ float subB[BLK * BLK];
+    float sum = 0;
+
+    for (int k = 0; k < wA; k += BLK) {
+	if (i < hA && k + bj < wA) {
+	    subA[RM(bi, bj, BLK, BLK, false)] = matA[RM(i, k + bj, wA, hA, x_trans)];
+	} else {
+	    subA[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	if (j < wB && k + bi < hB) {
+	    subB[RM(bi, bj, BLK, BLK, false)] = matB[RM(k + bi, j, wB, hB, y_trans)];
+	} else {
+	    subB[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	__syncthreads();
+
+	for (int bk = 0; bk < BLK; bk++) {
+	    sum += subA[RM(bi, bk, BLK, BLK, false)] * subB[RM(bk, bj, BLK, BLK, false)];
+	}
+	__syncthreads();
+    }
+    if (i < hA && j < wB) {
+	int pos = RM(i, j, wB, hA, false);
+    	result[pos] = sigmoid_p(sum + matC[pos]);
+    }
+}
+
+__global__ void 
+cudaBlockKernel_tanh(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_B, int w_B, bool y_trans, float *matC, float *result) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int hA, wA, hB, wB;
+
+    int bi = threadIdx.y;
+    int bj = threadIdx.x;
+ 
+    if (x_trans) {
+        hA = w_A;
+	wA = h_A;
+    } else {
+	hA = h_A;
+	wA = w_A;
+    }
+    if (y_trans) {
+        hB = w_B;
+	wB = h_B;
+    } else {
+	hB = h_B;
+	wB = w_B;
+    }
+
+    __shared__ float subA[BLK * BLK];
+    __shared__ float subB[BLK * BLK];
+    float sum = 0;
+
+    for (int k = 0; k < wA; k += BLK) {
+	if (i < hA && k + bj < wA) {
+	    subA[RM(bi, bj, BLK, BLK, false)] = matA[RM(i, k + bj, wA, hA, x_trans)];
+	} else {
+	    subA[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	if (j < wB && k + bi < hB) {
+	    subB[RM(bi, bj, BLK, BLK, false)] = matB[RM(k + bi, j, wB, hB, y_trans)];
+	} else {
+	    subB[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	__syncthreads();
+
+	for (int bk = 0; bk < BLK; bk++) {
+	    sum += subA[RM(bi, bk, BLK, BLK, false)] * subB[RM(bk, bj, BLK, BLK, false)];
+	}
+	__syncthreads();
+    }
+    if (i < hA && j < wB) {
+	int pos = RM(i, j, wB, hA, false);
+    	result[pos] = tanh_p(sum + matC[pos]);
+    }
+}
+
+__global__ void 
+cudaBlockKernel_add(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_B, int w_B, bool y_trans, float *matC, float *result) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int hA, wA, hB, wB;
+
+    int bi = threadIdx.y;
+    int bj = threadIdx.x;
+ 
+    if (x_trans) {
+        hA = w_A;
+	wA = h_A;
+    } else {
+	hA = h_A;
+	wA = w_A;
+    }
+    if (y_trans) {
+        hB = w_B;
+	wB = h_B;
+    } else {
+	hB = h_B;
+	wB = w_B;
+    }
+
+    __shared__ float subA[BLK * BLK];
+    __shared__ float subB[BLK * BLK];
+    float sum = 0;
+
+    for (int k = 0; k < wA; k += BLK) {
+	if (i < hA && k + bj < wA) {
+	    subA[RM(bi, bj, BLK, BLK, false)] = matA[RM(i, k + bj, wA, hA, x_trans)];
+	} else {
+	    subA[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	if (j < wB && k + bi < hB) {
+	    subB[RM(bi, bj, BLK, BLK, false)] = matB[RM(k + bi, j, wB, hB, y_trans)];
+	} else {
+	    subB[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	__syncthreads();
+
+	for (int bk = 0; bk < BLK; bk++) {
+	    sum += subA[RM(bi, bk, BLK, BLK, false)] * subB[RM(bk, bj, BLK, BLK, false)];
+	}
+	__syncthreads();
+    }
+    if (i < hA && j < wB) {
+	int pos = RM(i, j, wB, hA, false);
+    	result[pos] = sum + matC[pos];
+    }
 }
 
 void
@@ -309,6 +493,7 @@ exp_vector(float *input, int N) {
     input[index] = exp(input[index]);
 }
 
+
 __global__ void
 sigmoid(float *input, float *output, int N) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -354,7 +539,6 @@ dtanh(float *input, float *output, int N) {
  *  Point-wise Math Functions
  *
  *************************************************************************/
-
 __global__ void
 pointwise_add(float *nums1, float *nums2, float *output, int N) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -410,6 +594,65 @@ change_one_element(float *arr, float value, int index) {
     arr[index] += value;
 }
 
+__global__ void
+pointwise_tanh_dh_dsigmoid(float *c, float *dh, float *ho, float *result, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (index >= N) {
+	return;
+    }
+   
+   
+    result[index] = tanh_p(c[index]) * dh[index] * dsigmoid_p(ho[index]); 
+}
+
+__global__ void
+pointwise_ho_dh_dtanh_dc_next(float *ho, float *dh, float *c, float *dc_next, float* result, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= N) {
+	return;
+    }
+
+    result[index] = ho[index] * dh[index] * dtanh_p(c[index]) + dc_next[index];
+}
+
+__global__ void
+pointwise_cold_dc_dsigmoid(float *nums1, float *nums2, float *nums3, float* output, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N) {
+	return;
+    }
+    
+    output[index] = nums1[index] * nums2[index] * dsigmoid_p(nums3[index]);
+}
+
+__global__ void
+pointwise_hi_dc_dtanh(float *nums1, float *nums2, float *nums3, float* output, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N) {
+	return;
+    }
+    output[index] = nums1[index] * nums2[index] * dtanh_p(nums3[index]);
+}
+
+__global__ void
+pointwise_ho_tanh(float* nums1, float* nums2, float* output, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N) {
+	return;
+    }
+    output[index] = nums1[index] * tanh_p(nums2[index]);
+}
+
+__global__ void
+pointwise_mult_add_mult(float* nums1, float* nums2, float* nums3, float *nums4, float *output, int N) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N) {
+	return;
+    }
+    output[index] = nums1[index] * nums2[index] + nums3[index] * nums4[index];
+}
 /*************************************************************************
  *
  *  Other Math Functions
@@ -462,6 +705,46 @@ void cuda_show_weights(float *input, int length, char *name) {
     float *print = (float *) malloc(length * sizeof(float));
     cudaMemcpy(print, input, length * sizeof(float), cudaMemcpyDeviceToHost);
     showWeights(print, length, name);
+}
+
+void
+cell_forward_point_fuse(State *old_state, State *state, HiddenState *h, float *prob) {
+     // Combine input
+    cudaMemcpy(h->X, old_state->h, H * sizeof(float), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(h->X + H, prob, D * sizeof(float), cudaMemcpyDeviceToDevice);
+
+//  hf = sigmoid(X @ Wf + bf);
+    cudaBlockKernel_sigmoid <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_f, Z, H, false, model.b_f, h->h_f);
+//  hi = sigmoid(X @ Wi + bi);    
+    cudaBlockKernel_sigmoid <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_i, Z, H, false, model.b_i, h->h_i);
+//  ho = sigmoid(X @ Wo + bo);    
+    cudaBlockKernel_sigmoid <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_o, Z, H, false, model.b_o, h->h_o);
+//  hc = tanh(X @ Wc + bc);    
+    cudaBlockKernel_tanh <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_c, Z, H, false, model.b_c, h->h_c);
+    cudaThreadSynchronize();
+    
+   // cuda_show_weights(prob, D, "probs");
+// c = hf * c_old + hi * hc
+    pointwise_mult_add_mult <<<lineH, lineDim >>> (h->h_f, old_state->c, h->h_i, h->h_c, state->c, H);
+    cudaThreadSynchronize();
+// h = ho * tanh(C)
+    pointwise_ho_tanh <<< lineH, lineDim >>>(h->h_o, state->c, state->h, H);
+    cudaThreadSynchronize();
+    
+//prob = softmax()
+    cudaBlockKernel_add <<<lineD, lineDim>>> (state->h, 1, H, false, model.W_y, H, D, false, model.b_y, prob);
+
+   // cuda_show_weights(prob, D, "probs");
+    exp_vector <<< lineD, lineDim >>> (prob, D);
+    cudaThreadSynchronize();
+    
+    //cuda_show_weights(prob, D, "probs");
+    int sum_exp = 1; 
+    sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
+    cudaThreadSynchronize();
+
+    devide <<< lineD, lineDim >>> (prob, sum_exp, prob, D);
+    cudaThreadSynchronize();
 }
 
 void
@@ -536,9 +819,9 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
 
    // cuda_show_weights(h->h_o, H, "h_o");
      
- //   sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
+    sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
        
-    sum_exp = thrust::reduce(thrust::device, prob, prob + D);
+    //sum_exp = thrust::reduce(thrust::device, prob, prob + D);
     //cudaThreadSynchronize();
 
     devide <<< lineD, lineDim >>> (prob, sum_exp, prob, D);
@@ -549,6 +832,21 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     cudaFree(temp);
 }
 
+void cell_backward_point_fuse(Model *grad, float *dy, State *old_state, State *state, State *new_state, 
+			  HiddenState *hiddenState) {
+    
+    float *dh_next = new_state->h;
+    float *dc_next = new_state->c;
+
+    float *dh, *dc, *temp;
+    cudaMalloc((void **) &dh, H * sizeof(float));
+    cudaMalloc((void **) &dc, H * sizeof(float));
+    cudaMalloc((void **) &temp, H * sizeof(float));
+
+
+
+
+}
 void
 cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new_state,
                           HiddenState *hiddenState) {
@@ -597,7 +895,6 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     // dhf = c_old * dc * dsigmoid(hf)
     float *dhf = grad->b_f;
     dsigmoid <<< lineH, lineDim >>> (hiddenState->h_f, dhf, H);
-    //cuda_show_weights(dhf, H, "dhf");
     // Gradient for h_i in
     // c = h_f * c_old + h_i * h_c
     // dhi = hc * dc * dsigmoid(hi)
@@ -694,10 +991,10 @@ train(int *X, int *Y, Model *grad) {
         allocateHiddenState(&hiddenState[t][0]);
 
         //cudaMemset(probs[t-1], 0, D * sizeof(float));               // Initialize prob to 0
-    //    increase_float(probs[t - 1], X[t-1]);        // get one hot encodei
 	//problems
         float *cudaProbs;
 	cudaMalloc((void **) &cudaProbs, D * sizeof(float));
+        cudaMemset(cudaProbs, 0, D * sizeof(float));
 	probs[t - 1][X[t - 1]] = 1.0;
 	cudaMemcpy(cudaProbs, probs[t - 1], D * sizeof(float), cudaMemcpyHostToDevice);
 
@@ -708,7 +1005,8 @@ train(int *X, int *Y, Model *grad) {
         for (l = 1; l <= LAYER; l++) {
             allocateState(&states[t][l]);
             allocateHiddenState(&hiddenState[t][l]);
-            cell_forward(&states[t-1][l], &states[t][l], &hiddenState[t][l], cudaProbs);
+           // cell_forward(&states[t-1][l], &states[t][l], &hiddenState[t][l], cudaProbs);
+	    cell_forward_point_fuse(&states[t - 1][l], &states[t][l], &hiddenState[t][l], cudaProbs);
         }
 	probs[t - 1] = cudaProbs;
     }
@@ -726,7 +1024,7 @@ train(int *X, int *Y, Model *grad) {
     for (t = TIME; t >= 1; t--) {
         decrease_float(&probs[t-1][Y[t-1]]);
 //	cuda_show_weights(probs[t - 1], D, "probs");
-        for (l = LAYER - 1; l >= 0; l--) {
+        for (l = LAYER; l >= 1; l--) {
             cell_backward(grad, probs[t-1], &states[t-1][l], &states[t][l], &d_next[l], &hiddenState[t][l]);
 	    //cuda_show_weights(probs[t - 1], D, "probs");
         }
@@ -803,6 +1101,7 @@ test() {
 
     SGD(input, output, 1, num_samples);
 
+    
     freeModel(&model);
     double endTime = CycleTimer::currentSeconds();
 
