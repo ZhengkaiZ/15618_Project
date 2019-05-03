@@ -5,11 +5,12 @@
 #include <driver_functions.h>
 #include <thrust/reduce.h>
 #include <thrust/execution_policy.h>
+#include <pthread.h>
 
 #include "CycleTimer.h"
 #include "lstm.h"
 
-#define BLK 8
+#define BLK 16
 dim3 singleDim(1, 1);
 dim3 lineDim(256, 1);
 dim3 rowDim(1, 256);
@@ -439,17 +440,15 @@ sum(float* num, float* sum, int N) {
 void
 increase_float(float* prob, int index) {
     float temp = 1.0;
-    //cudaMemcpy(&temp, device_int, sizeof(float), cudaMemcpyDeviceToHost);
-    //temp += 1.0;
-    cudaMemcpy(prob + index, &temp, sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(&prob[index], &temp, sizeof(float), cudaMemcpyHostToDevice);
 }
 
 void
-decrease_float(float* device_int) {
+decrease_float(float* device, int index) {
     float temp;
-    cudaMemcpy(&temp, device_int, sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&temp, &device[index], sizeof(float), cudaMemcpyDeviceToHost);
     temp -= 1.0;
-    cudaMemcpy(device_int, &temp, sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(&device[index], &temp, sizeof(float), cudaMemcpyHostToDevice);
 }
 
 /*************************************************************************
@@ -462,6 +461,7 @@ void cuda_show_weights(float *input, int length, char *name) {
     float *print = (float *) malloc(length * sizeof(float));
     cudaMemcpy(print, input, length * sizeof(float), cudaMemcpyDeviceToHost);
     showWeights(print, length, name);
+    free(print);
 }
 
 void
@@ -536,9 +536,9 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
 
    // cuda_show_weights(h->h_o, H, "h_o");
      
- //   sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
+    sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
        
-    sum_exp = thrust::reduce(thrust::device, prob, prob + D);
+//    sum_exp = thrust::reduce(thrust::device, prob, prob + D);
     //cudaThreadSynchronize();
 
     devide <<< lineD, lineDim >>> (prob, sum_exp, prob, D);
@@ -668,88 +668,126 @@ cell_backward(Model *grad, float *dy, State *old_state, State *state, State *new
     cudaFree(temp);
 }
 
+typedef struct {
+    State *old_state;
+    State *state;
+    HiddenState *h;
+    float *prob;
+}forward_arg;
+
+typedef struct {
+    Model *grad;
+    float *dy;
+    State *old_state;
+    State *state;
+    State *new_state;
+    HiddenState *hiddenState;
+}backward_arg;
+
+
+void *forward_thread(void *arg) {
+    forward_arg* connfd = (forward_arg *) arg;
+    cell_forward(connfd->old_state, connfd->state, connfd->h, connfd->prob);
+    return NULL;
+}
+
+
+void *backward_thread(void *arg) {
+    backward_arg* connfd = (backward_arg *) arg;
+    cell_backward(connfd->grad, connfd->dy, connfd->old_state, connfd->state, connfd->new_state, connfd->hiddenState);
+    return NULL;
+}
 
 void
-train(int *X, int *Y, Model *grad) {
-    State **states = (State **) malloc(sizeof(State*) * (TIME + 1));
-    HiddenState **hiddenState = (HiddenState **) malloc(sizeof(HiddenState*) * (TIME + 1));
-    float **probs = (float **) malloc(sizeof(float *) * TIME);
+train(int *X, int *Y, Model *grad, State **states, HiddenState **hiddenState, State *d_next, float **probs) {
+    cudaStream_t stream[2];
+    cudaStreamCreate(&stream[0]);
+    cudaStreamCreate(&stream[1]);
+    int min = TIME < LAYER? TIME: LAYER;
+    pthread_t threads[min];
 
-    int i, k, t, l;
-    for(i = 0; i <= TIME; i++) {
-        states[i] = (State *)malloc(sizeof(State) * (LAYER + 1));
-        hiddenState[i] = (HiddenState *)malloc(sizeof(HiddenState) * (LAYER + 1));
-	probs[i] = (float *) malloc(sizeof(float) * D);
-	memset(probs[i], 0, D * sizeof(float));
-    }
-    for (i = 0; i <= LAYER; i++) {
-        allocateState(&states[0][i]);
-        allocateHiddenState(&hiddenState[0][i]);
-    }
 
-    float *print = (float *) malloc(D * sizeof(float));
-    // Forward
+    int t, l, i;
     for (t = 1; t <= TIME; t++) {
-        allocateState(&states[t][0]);
-        allocateHiddenState(&hiddenState[t][0]);
-
-        //cudaMemset(probs[t-1], 0, D * sizeof(float));               // Initialize prob to 0
-    //    increase_float(probs[t - 1], X[t-1]);        // get one hot encodei
-	//problems
-        float *cudaProbs;
-	cudaMalloc((void **) &cudaProbs, D * sizeof(float));
-	probs[t - 1][X[t - 1]] = 1.0;
-	cudaMemcpy(cudaProbs, probs[t - 1], D * sizeof(float), cudaMemcpyHostToDevice);
-
-        cudaMemcpy(states[t][0].h, probs[t-1], H * sizeof(float), cudaMemcpyDeviceToDevice);  // Initialize h(0) to input
-        cudaMemset(states[t][0].c, 0, H * sizeof(float));           // Initialize c(0) to 0
-
-        // Hidden Layer operate at time t
-        for (l = 1; l <= LAYER; l++) {
-            allocateState(&states[t][l]);
-            allocateHiddenState(&hiddenState[t][l]);
-            cell_forward(&states[t-1][l], &states[t][l], &hiddenState[t][l], cudaProbs);
-        }
-	probs[t - 1] = cudaProbs;
+        cudaMemsetAsync(probs[t-1], 0, D * sizeof(float), stream[0]);               // Initialize prob to 0
     }
 
+    // Gradient for dh_next and dc_next is zero from the last t
+    for (l = 0; l < LAYER; l++) {
+        cudaMemsetAsync(d_next[l].h, 0, H * sizeof(float), stream[1]);
+        cudaMemsetAsync(d_next[l].c, 0, H * sizeof(float), stream[1]);
+    }
+
+    cudaStreamSynchronize(stream[0]);
+    for (t = 1; t <= TIME; t++) {
+        increase_float(probs[t - 1], X[t-1]);        // get one hot encode
+        cudaMemcpyAsync(states[t][0].h, probs[t-1], H * sizeof(float), cudaMemcpyDeviceToDevice, stream[0]);  // Initialize h(0) to input
+        cudaMemsetAsync(states[t][0].c, 0, H * sizeof(float), stream[0]);          // Initialize c(0) to 0
+    }
+
+    cudaStreamSynchronize(stream[0]);
+
+    // Forward
+    for(i = 2; i <= TIME+LAYER; i++) {
+        int start = i-LAYER > 1? i-LAYER: 1;
+        int end = TIME < i-1? TIME: i-1;
+        for (t = start; t <= end; t++) {
+            l = i-t;
+
+            forward_arg* arg = (forward_arg*) malloc(sizeof(forward_arg));
+            arg->old_state = &states[t-1][l];
+            arg->state = &states[t][l];
+            arg->h = &hiddenState[t][l];
+            arg->prob = probs[t-1];
+
+            if (pthread_create(&threads[t-start], NULL, forward_thread, arg) < 0) {
+                fprintf(stderr, "Error creating threadn");
+            }
+        }
+
+        for (t = 0; t <= end-start; t++) {
+            if(pthread_join(threads[t], NULL) < 0) {
+                fprintf(stderr, "Error joining threadn");
+            }
+        }
+    }
 
     // Backward
-    // Gradient for dh_next and dc_next is zero from the last t
-    State d_next[LAYER];
-    for (k = 0; k < LAYER; k++) {
-        allocateState(&d_next[k]);
-        cudaMemset(d_next[k].h, 0, H * sizeof(float));
-        cudaMemset(d_next[k].c, 0, H * sizeof(float));
+    for (t = 0; t < TIME; t++) {
+        decrease_float(probs[t], Y[t]);
     }
+    cudaStreamSynchronize(stream[1]);
 
-    for (t = TIME; t >= 1; t--) {
-        decrease_float(&probs[t-1][Y[t-1]]);
-//	cuda_show_weights(probs[t - 1], D, "probs");
-        for (l = LAYER - 1; l >= 0; l--) {
+    for (i = TIME+LAYER-1; i >0; i--) {
+        int start = i-LAYER > 1? i-LAYER: 1;
+        int end = TIME < i-1? TIME: i-1;
+        for (t = end; t >= start; t--) {
+            l = i - t;
+
             cell_backward(grad, probs[t-1], &states[t-1][l], &states[t][l], &d_next[l], &hiddenState[t][l]);
-	    //cuda_show_weights(probs[t - 1], D, "probs");
+
+            backward_arg* arg = (backward_arg*) malloc(sizeof(backward_arg));
+            arg->grad = grad;
+            arg->dy = probs[t-1];
+            arg->old_state = &states[t-1][l];
+            arg->state = &states[t][l];
+            arg->new_state = &d_next[l];
+            arg->hiddenState = &hiddenState[t][l];
+
+            if (pthread_create(&threads[t-start], NULL, backward_thread, arg) < 0) {
+                fprintf(stderr, "Error creating threadn");
+            }
+        }
+
+        for (t = end-start; t >= 0 ; t--) {
+            if(pthread_join(threads[t], NULL) < 0) {
+                fprintf(stderr, "Error joining threadn");
+            }
         }
     }
 
-    // Clean up
-    for (t = 0; t <= TIME; t++) {
-        for (l = 0; l <= LAYER; l++) {
-            freeState(&states[t][l]);
-            freeHiddenState(&hiddenState[t][l]);
-        }
-        if (t != TIME) {
-            cudaFree(probs[t]);
-        }
-        free(states[t]);
-        free(hiddenState[t]);
-    }
-    for (l = 0; l < LAYER; l++) {
-        freeState(&d_next[l]);
-    }
-    free(states);
-    free(hiddenState);
-    free(probs);
+    cudaStreamDestroy(stream[0]);
+    cudaStreamDestroy(stream[1]);
 }
 
 void
@@ -769,20 +807,72 @@ updateModel(Model* grad, float learning_rate) {
 }
 
 void
+setUp(Model *grad, State **states, HiddenState **hiddenState, State *d_next, float **probs) {
+    allocateModel(grad);
+    int t, l;
+    for(t = 0; t <= TIME; t++) {
+        cudaHostAlloc((void**)&states[t], sizeof(State) * (LAYER + 1), cudaHostAllocDefault);
+        cudaHostAlloc((void**)&hiddenState[t], sizeof(HiddenState) * (LAYER + 1), cudaHostAllocDefault);
+        for (l = 0; l <= LAYER; l++) {
+            allocateState(&states[t][l]);
+            allocateHiddenState(&hiddenState[t][l]);
+        }
+    }
+    for (t = 0; t < TIME; t++)
+        cudaMalloc((void **) &probs[t], D * sizeof(float));
+    for (l = 0; l < LAYER; l++)
+        allocateState(&d_next[l]);
+}
+
+void
+clean(Model *grad, State **states, HiddenState **hiddenState, State *d_next, float **probs) {
+    int t, l;
+    // Clean up
+    for (t = 0; t <= TIME; t++) {
+        for (l = 0; l <= LAYER; l++) {
+            freeState(&states[t][l]);
+            freeHiddenState(&hiddenState[t][l]);
+        }
+        cudaFreeHost(states[t]);
+        cudaFreeHost(hiddenState[t]);
+    }
+    for (l = 0; l < LAYER; l++) {
+        freeState(&d_next[l]);
+    }
+    for(t = 0; t < TIME; t++) {
+        cudaFree(probs[t]);
+    }
+    freeModel(grad);
+    free(states);
+    free(hiddenState);
+    free(probs);
+}
+
+void
 SGD(int **X, int **Y, float learning_rate, int num_samples) {
+    double startTime = CycleTimer::currentSeconds();
     int i, j;
     
     Model tmp_grad;
-    allocateModel(&tmp_grad);
+    State **states = (State **) malloc(sizeof(State*) * (TIME+1));
+    HiddenState **hiddenState = (HiddenState **) malloc(sizeof(HiddenState*) * (TIME+1));
+    float **probs = (float**)malloc(sizeof(float*) * TIME);
+    State d_next[LAYER];
+
+    setUp(&tmp_grad, states, hiddenState, d_next, probs);
 
     for (i = 0; i < EPOCH; i++) {
         for (j = 0; j < num_samples; j++) {
-            train(X[j], Y[j], &tmp_grad);
+            train(X[j], Y[j], &tmp_grad, states, hiddenState, d_next, probs);
             updateModel(&tmp_grad, learning_rate);
         }
     }
 
-    freeModel(&tmp_grad);
+    clean(&tmp_grad, states, hiddenState, d_next, probs);
+
+    double endTime = CycleTimer::currentSeconds();
+    double overallDuration = endTime - startTime;
+    printf("Overall: %.3f ms\t\n", 1000.f * overallDuration);
 }
 
 void
@@ -798,16 +888,13 @@ test() {
 	memset(output[i], 0, TIME * sizeof(float));
     }
 //
-    double startTime = CycleTimer::currentSeconds();
+
     allocateModel(&model);
 
     SGD(input, output, 1, num_samples);
 
     freeModel(&model);
-    double endTime = CycleTimer::currentSeconds();
 
-    double overallDuration = endTime - startTime;
-    printf("Overall: %.3f ms\t\n", 1000.f * overallDuration);
 }
 
 void
@@ -872,9 +959,7 @@ int** build_matrix(char *path, int* x, int* y) {
     for(i = 0; i < lenX; i++) {
         mat[i] = (int *) malloc(lenY * sizeof(int));
     }
-    
-    printf("%d", lenX);
-    printf("%d", lenY);
+
     for(i = 0; i < lenX; i++) {
         for(j = 0; j < lenY; j++) {
             fscanf(file, "%d", &mat[i][j]);

@@ -4,7 +4,7 @@
 #define Z 168
 
 // Layer Count
-#define LAYER 1
+#define LAYER 10
 
 // Epoch
 #define EPOCH 50
