@@ -706,38 +706,42 @@ void cuda_show_weights(float *input, int length, char *name) {
 
 void
 cell_forward_point_fuse(State *old_state, State *state, HiddenState *h, float *prob) {
+    cudaStream_t stream0, stream1;
+    cudaStreamCreate(&stream0);
+    cudaStreamCreate(&stream1);
+
      // Combine input
     cudaMemcpy(h->X, old_state->h, H * sizeof(float), cudaMemcpyDeviceToDevice);
     cudaMemcpy(h->X + H, prob, D * sizeof(float), cudaMemcpyDeviceToDevice);
 
-//  hf = sigmoid(X @ Wf + bf);
-    cudaBlockKernel_sigmoid <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_f, Z, H, false, model.b_f, h->h_f);
-//  hi = sigmoid(X @ Wi + bi);    
-    cudaBlockKernel_sigmoid <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_i, Z, H, false, model.b_i, h->h_i);
-//  ho = sigmoid(X @ Wo + bo);    
-    cudaBlockKernel_sigmoid <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_o, Z, H, false, model.b_o, h->h_o);
-//  hc = tanh(X @ Wc + bc);    
-    cudaBlockKernel_tanh <<< lineH, lineDim >>> (h->X, 1, Z, false, model.W_c, Z, H, false, model.b_c, h->h_c);
-    cudaThreadSynchronize();
+    //  ho = sigmoid(X @ Wo + bo);
+    cudaBlockKernel_sigmoid <<< lineH, lineDim, 0, stream1 >>> (h->X, 1, Z, false, model.W_o, Z, H, false, model.b_o, h->h_o);
+    //  hf = sigmoid(X @ Wf + bf);
+    cudaBlockKernel_sigmoid <<< lineH, lineDim, 0, stream0 >>> (h->X, 1, Z, false, model.W_f, Z, H, false, model.b_f, h->h_f);
+    //  hi = sigmoid(X @ Wi + bi);
+    cudaBlockKernel_sigmoid <<< lineH, lineDim, 0, stream0 >>> (h->X, 1, Z, false, model.W_i, Z, H, false, model.b_i, h->h_i);
+    //  hc = tanh(X @ Wc + bc);
+    cudaBlockKernel_tanh <<< lineH, lineDim, 0, stream0 >>> (h->X, 1, Z, false, model.W_c, Z, H, false, model.b_c, h->h_c);
+
+    // c = hf * c_old + hi * hc
+    cudaStreamSynchronize(stream0);
+    pointwise_mult_add_mult <<<lineH, lineDim, 0, stream1 >>> (h->h_f, old_state->c, h->h_i, h->h_c, state->c, H);
+    // h = ho * tanh(C)
+    cudaStreamSynchronize(stream1);
+    pointwise_ho_tanh <<< lineH, lineDim, 0, stream0 >>>(h->h_o, state->c, state->h, H);
     
-   // cuda_show_weights(prob, D, "probs");
-// c = hf * c_old + hi * hc
-    pointwise_mult_add_mult <<<lineH, lineDim >>> (h->h_f, old_state->c, h->h_i, h->h_c, state->c, H);
-    cudaThreadSynchronize();
-// h = ho * tanh(C)
-    pointwise_ho_tanh <<< lineH, lineDim >>>(h->h_o, state->c, state->h, H);
-    cudaThreadSynchronize();
-    
-//prob = softmax()
+    //prob = softmax()
+    cudaStreamSynchronize(stream0);
     cudaBlockKernel_add <<<lineD, lineDim>>> (state->h, 1, H, false, model.W_y, H, D, false, model.b_y, prob);
+    cudaThreadSynchronize();
 
    // cuda_show_weights(prob, D, "probs");
     exp_vector <<< lineD, lineDim >>> (prob, D);
     cudaThreadSynchronize();
     
     //cuda_show_weights(prob, D, "probs");
-    int sum_exp = 1; 
-    sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
+    float sum_exp;
+    sum <<< single, singleDim >>> (prob, &sum_exp, D);
     cudaThreadSynchronize();
 
     devide <<< lineD, lineDim >>> (prob, sum_exp, prob, D);
@@ -816,7 +820,7 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
 
    // cuda_show_weights(h->h_o, H, "h_o");
      
-    sum <<< single, singleDim >>> (prob, &sum_exp, D);  // *** problem***
+    sum <<< single, singleDim >>> (prob, &sum_exp, D);
        
 //    sum_exp = thrust::reduce(thrust::device, prob, prob + D);
     //cudaThreadSynchronize();
