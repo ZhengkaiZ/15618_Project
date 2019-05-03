@@ -729,17 +729,13 @@ cell_forward_point_fuse(State *old_state, State *state, HiddenState *h, float *p
     // h = ho * tanh(C)
     cudaStreamSynchronize(stream1);
     pointwise_ho_tanh <<< lineH, lineDim, 0, stream0 >>>(h->h_o, state->c, state->h, H);
-    
-    //prob = softmax()
-    cudaStreamSynchronize(stream0);
+
     cudaBlockKernel_add <<<lineD, lineDim>>> (state->h, 1, H, false, model.W_y, H, D, false, model.b_y, prob);
     cudaThreadSynchronize();
 
-   // cuda_show_weights(prob, D, "probs");
     exp_vector <<< lineD, lineDim >>> (prob, D);
     cudaThreadSynchronize();
-    
-    //cuda_show_weights(prob, D, "probs");
+
     float sum_exp;
     sum <<< single, singleDim >>> (prob, &sum_exp, D);
     cudaThreadSynchronize();
@@ -833,17 +829,80 @@ cell_forward(State *old_state, State *state, HiddenState *h, float *prob) {
     cudaFree(temp);
 }
 
-void cell_backward_point_fuse(Model *grad, float *dy, State *old_state, State *state, State *new_state, 
+void 
+cell_backward_point_fuse(Model *grad, float *dy, State *old_state, State *state, State *new_state, 
 			  HiddenState *hiddenState) {
     
     float *dh_next = new_state->h;
     float *dc_next = new_state->c;
 
-    float *dh, *dc, *temp;
+    float *dh, *dc;// *temp;
     cudaMalloc((void **) &dh, H * sizeof(float));
     cudaMalloc((void **) &dc, H * sizeof(float));
-    cudaMalloc((void **) &temp, H * sizeof(float));
 
+    cudaBlockKernel_add <<<rowD, rowDim >>> (dy, 1, D, false, model.W_y, H, D, true, dh_next, dh);
+    cudaBlockKernel <<<gridHD, gridsDim >>> (state->h, H, 1, false, dy, 1, D, false, grad->W_y);
+    cudaMemcpy(dy, grad->b_y, D * sizeof(float), cudaMemcpyDeviceToDevice);
+    cudaThreadSynchronize();
+    
+    float *dho = grad->b_o;
+    pointwise_tanh_dh_dsigmoid <<<lineH, lineDim>>> (state->c, dh, hiddenState->h_o, dho, H); 
+    pointwise_ho_dh_dtanh_dc_next <<<lineH, lineDim>>> (hiddenState->h_o, dh, state->c, dc_next, dc, H);
+    float *dhf = grad->b_f;
+    pointwise_cold_dc_dsigmoid <<<lineH, lineDim>>> (old_state->c, dc, dhf, dhf, H);
+    float *dhi = grad->b_i;
+    pointwise_cold_dc_dsigmoid <<<lineH, lineDim>>> (hiddenState->h_c, dc, dhi, dhi, H);
+    float *dhc = grad->b_c;
+    pointwise_hi_dc_dtanh <<<lineH, lineDim>>> (hiddenState->h_i, dc, dhc, dc_next, H);
+
+   // pointwise_ho_tanh(nums1, nums2, output, N);
+    pointwise_multi <<<lineH, lineDim >>> (hiddenState->h_f, dc, dc_next, H);
+    //pointwise_mult_add_mult(nums1, nums2, nums3, nums4, output, N);
+    // Gate gradients
+    // dWf = X.T @ dhf
+    matrix_multi <<< gridZH, gridsDim >>> (hiddenState->X, Z, 1, false, dhf, 1, H, false, grad->W_f);
+    // dWi = X.T @ dhi
+    matrix_multi <<< gridZH, gridsDim >>> (hiddenState->X, Z, 1, false, dhi, 1, H, false, grad->W_i);
+    // dWo = X.T @ dho
+    matrix_multi <<< gridZH, gridsDim >>> (hiddenState->X, Z, 1, false, dho, 1, H, false, grad->W_o);
+    // dWc = X.T @ dhc
+    matrix_multi <<< gridZH, gridsDim >>> (hiddenState->X, Z, 1, false, dhc, 1, H, false, grad->W_c);
+    //cuda_show_weights(grad->W_f, H, "w_c");
+    float *dXf, *dXi, *dXo, *dXc;
+    cudaMalloc((void **) &dXf, Z * sizeof(float));
+    cudaMalloc((void **) &dXi, Z * sizeof(float));
+    cudaMalloc((void **) &dXo, Z * sizeof(float));
+    cudaMalloc((void **) &dXc, Z * sizeof(float));
+    // dXf = dhf @ Wf.T
+    matrix_multi <<< rowZ, rowDim >>> (dhf, 1, H, false, model.W_f, Z, H, true, dXf);
+    // dXi = dhi @ Wi.T
+    matrix_multi <<< rowZ, rowDim >>> (dhi, 1, H, false, model.W_i, Z, H, true, dXi);
+    // dXo = dho @ Wo.T
+    matrix_multi <<< rowZ, rowDim >>> (dho, 1, H, false, model.W_o, Z, H, true, dXo);
+    // dXc = dhc @ Wc.T
+    matrix_multi <<< rowZ, rowDim >>> (dhc, 1, H, false, model.W_c, Z, H, true, dXc);
+
+    // dX = dXo + dXc + dXi + dXf
+    float *dX, *X;
+    cudaMalloc((void **) &dX, Z * sizeof(float));
+    cudaMalloc((void **) &X, D * sizeof(float));
+    cudaThreadSynchronize();
+    pointwise_add <<< lineZ, lineDim >>> (dXf, dXc, dXi, dXo, dX, Z);
+    // dh_next = dX[:, :H]
+    cudaThreadSynchronize();
+    cudaMemcpy(dX, dh_next, H * sizeof(float), cudaMemcpyDeviceToDevice);
+    // prob = dX[H:Z]
+    cudaMemcpy(dX+H, dy, D * sizeof(float), cudaMemcpyDeviceToDevice);
+    cudaThreadSynchronize();
+
+    cudaFree(dXf);
+    cudaFree(dXi);
+    cudaFree(dXo);
+    cudaFree(dXc);
+    cudaFree(dX);
+
+    cudaFree(dh);
+    cudaFree(dc);
 }
 
 void
@@ -990,7 +1049,7 @@ void *forward_thread(void *arg) {
 
 void *backward_thread(void *arg) {
     backward_arg* connfd = (backward_arg *) arg;
-    cell_backward(connfd->grad, connfd->dy, connfd->old_state, connfd->state, connfd->new_state, connfd->hiddenState);
+    cell_backward_point_fuse(connfd->grad, connfd->dy, connfd->old_state, connfd->state, connfd->new_state, connfd->hiddenState);
     return NULL;
 }
 
@@ -1059,8 +1118,6 @@ train(int *X, int *Y, Model *grad, State **states, HiddenState **hiddenState, St
         int end = TIME < i-1? TIME: i-1;
         for (t = end; t >= start; t--) {
             l = i - t;
-
-            cell_backward(grad, probs[t-1], &states[t-1][l], &states[t][l], &d_next[l], &hiddenState[t][l]);
 
             backward_arg* arg = (backward_arg*) malloc(sizeof(backward_arg));
             arg->grad = grad;
