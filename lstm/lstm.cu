@@ -140,39 +140,6 @@ int updiv(int n, int d) {
  *  Matrix Functions
  *
  *************************************************************************/
-__device__ float
-exp_vector_p(float input) {
-    return exp(input);
-}
-
-__device__ float
-sigmoid_p(float input) {
-    return 1 / (1 + exp(-input));
-}
-
-__device__ float
-dsigmoid_p(float input) {
-    return input * (1 - input);
-}
-
-__device__ float
-tanh_p(float input) {
-    return tanhf(input);
-}
-
-__device__ float
-dtanh_p(float input) {
-    return 1 - input * input;
-}
-
-__device__ int
-RM(int r, int c, int width, int height, bool trans) {
-    if (trans) {
-	return c * height + r;
-    }
-    return r * width + c;
-}
-
 __global__ void 
 cudaBlockKernel(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_B, int w_B, bool y_trans, float *result) {
     int i = blockIdx.y * blockDim.y + threadIdx.y;
@@ -474,6 +441,45 @@ matrix_multi_single(float *x, float *y, int y_w, int y_h, float *result) {
         int index_y = k * y_w + index;
         result[index] += x[index_x] * y[index_y];
     }
+}
+
+/*************************************************************************
+ *
+ *  Device Math Functions
+ *
+ *************************************************************************/
+
+__device__ float
+exp_vector_p(float input) {
+    return exp(input);
+}
+
+__device__ float
+sigmoid_p(float input) {
+    return 1 / (1 + exp(-input));
+}
+
+__device__ float
+dsigmoid_p(float input) {
+    return input * (1 - input);
+}
+
+__device__ float
+tanh_p(float input) {
+    return tanhf(input);
+}
+
+__device__ float
+dtanh_p(float input) {
+    return 1 - input * input;
+}
+
+__device__ int
+RM(int r, int c, int width, int height, bool trans) {
+    if (trans) {
+        return c * height + r;
+    }
+    return r * width + c;
 }
 
 /*************************************************************************
@@ -1334,5 +1340,3 @@ int** build_matrix(char *path, int* x, int* y) {
     fclose(file);
     return mat;
 }
-
-
