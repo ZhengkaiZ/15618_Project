@@ -380,6 +380,58 @@ cudaBlockKernel_add(float *matA, int h_A, int w_A, bool x_trans, float *matB, in
     }
 }
 
+__global__ void 
+cudaBlockKernel_add_exp(float *matA, int h_A, int w_A, bool x_trans, float *matB, int h_B, int w_B, bool y_trans, float *matC, float *result) {
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int hA, wA, hB, wB;
+
+    int bi = threadIdx.y;
+    int bj = threadIdx.x;
+ 
+    if (x_trans) {
+        hA = w_A;
+	wA = h_A;
+    } else {
+	hA = h_A;
+	wA = w_A;
+    }
+    if (y_trans) {
+        hB = w_B;
+	wB = h_B;
+    } else {
+	hB = h_B;
+	wB = w_B;
+    }
+
+    __shared__ float subA[BLK * BLK];
+    __shared__ float subB[BLK * BLK];
+    float sum = 0;
+
+    for (int k = 0; k < wA; k += BLK) {
+	if (i < hA && k + bj < wA) {
+	    subA[RM(bi, bj, BLK, BLK, false)] = matA[RM(i, k + bj, wA, hA, x_trans)];
+	} else {
+	    subA[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	if (j < wB && k + bi < hB) {
+	    subB[RM(bi, bj, BLK, BLK, false)] = matB[RM(k + bi, j, wB, hB, y_trans)];
+	} else {
+	    subB[RM(bi, bj, BLK, BLK, false)] = 0.0;
+	}
+	__syncthreads();
+
+	for (int bk = 0; bk < BLK; bk++) {
+	    sum += subA[RM(bi, bk, BLK, BLK, false)] * subB[RM(bk, bj, BLK, BLK, false)];
+	}
+	__syncthreads();
+    }
+    if (i < hA && j < wB) {
+	int pos = RM(i, j, wB, hA, false);
+    	result[pos] = exp_vector_p(sum + matC[pos]);
+    }
+}
+
 void
 cudaMultMatrixBlocked(float *dmatA, int hA, int wA, bool x_trans, float *dmatB, int hB, int wB, bool y_trans, float *dmatC) {
     dim3 threadsPerBlock(BLK, BLK);
@@ -732,11 +784,11 @@ cell_forward_point_fuse(State *old_state, State *state, HiddenState *h, float *p
     cudaThreadSynchronize();
     
 // add one more kernel
-    cudaBlockKernel_add <<<lineD, lineDim>>> (state->h, 1, H, false, model.W_y, H, D, false, model.b_y, prob);
+    cudaBlockKernel_add_exp <<<lineD, lineDim>>> (state->h, 1, H, false, model.W_y, H, D, false, model.b_y, prob);
 
    // cuda_show_weights(prob, D, "probs");
-    exp_vector <<< lineD, lineDim >>> (prob, D);
-    cudaThreadSynchronize();
+    //exp_vector <<< lineD, lineDim >>> (prob, D);
+    //cudaThreadSynchronize();
     
     //cuda_show_weights(prob, D, "probs");
     float sum_exp; 
@@ -1257,5 +1309,3 @@ int** build_matrix(char *path, int* x, int* y) {
     fclose(file);
     return mat;
 }
-
-
