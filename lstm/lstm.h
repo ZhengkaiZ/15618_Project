@@ -1,16 +1,17 @@
 
 #define H 128
-#define D 10
-#define Z 138
+#define D 40
+#define Z 168
 
 // Layer Count
-#define LAYER 3
+#define LAYER 1
 
 // Epoch
-#define EPOCH 1
+#define EPOCH 50
 
 #define TIME 10
 
+int **build_matrix(char *path, int* x, int* y);
 // Key Data Structures
 
 typedef struct {
